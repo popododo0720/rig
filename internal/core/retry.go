@@ -2,12 +2,13 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 )
 
 // retryLoop implements the self-correction cycle:
-// test fail → AI AnalyzeFailure → GenerateCode → redeploy → retest.
+// test fail -> AI AnalyzeFailure -> GenerateCode -> redeploy -> retest.
 // It returns nil when tests pass, or an error when max retries are exceeded.
 func retryLoop(
 	ctx context.Context,
@@ -19,6 +20,7 @@ func retryLoop(
 	changes []AIFileChange,
 	maxRetry int,
 ) error {
+	_ = attempt
 	retryCount := 0
 
 	for {
@@ -29,28 +31,26 @@ func retryLoop(
 
 		log.Printf("[engine] retry %d/%d for task %s", retryCount, maxRetry, task.ID)
 
-		// Collect test failure logs.
 		failureLogs := collectTestOutput(testResults)
 
-		// Build current code map from changes.
 		currentCode := make(map[string]string, len(changes))
 		for _, c := range changes {
 			currentCode[c.Path] = c.Content
 		}
 
-		// Transition back to coding for the fix.
 		if err := Transition(task, PhaseCoding); err != nil {
 			return fmt.Errorf("transition to coding for retry: %w", err)
 		}
 		e.notifyPhase(ctx, task, PhaseCoding)
+		task.AddPipelineStep(PhaseCoding, "running")
 
-		// AI analyzes the failure and produces fixes.
 		fixChanges, err := e.ai.AnalyzeFailure(ctx, failureLogs, currentCode)
 		if err != nil {
+			task.CompletePipelineStep(PhaseCoding, "failed", "", err.Error())
 			return fmt.Errorf("analyze failure: %w", err)
 		}
+		task.CompletePipelineStep(PhaseCoding, "success", fmt.Sprintf("generated %d retry file changes", len(fixChanges)), "")
 
-		// Start a new attempt for this retry.
 		newAttemptNum := len(task.Attempts) + 1
 		retryAttempt := newAttempt(newAttemptNum)
 		retryAttempt.Plan = fmt.Sprintf("Retry #%d: fix based on test failures", retryCount)
@@ -61,34 +61,37 @@ func retryLoop(
 		}
 		retryAttempt.FilesChanged = filesChanged
 
-		// Transition to committing.
 		if err := Transition(task, PhaseCommitting); err != nil {
 			completeAttempt(&retryAttempt, "failed", ReasonGit)
 			task.Attempts = append(task.Attempts, retryAttempt)
 			return fmt.Errorf("transition to committing for retry: %w", err)
 		}
 		e.notifyPhase(ctx, task, PhaseCommitting)
+		task.AddPipelineStep(PhaseCommitting, "running")
 
-		// Commit and push fixes.
 		_, err = stepCommit(ctx, e.git, task.Branch, fixChanges, task.Issue.Title)
 		if err != nil {
+			task.CompletePipelineStep(PhaseCommitting, "failed", "", err.Error())
 			completeAttempt(&retryAttempt, "failed", ReasonGit)
 			task.Attempts = append(task.Attempts, retryAttempt)
 			return fmt.Errorf("commit retry changes: %w", err)
 		}
+		task.CompletePipelineStep(PhaseCommitting, "success", "retry changes committed", "")
 
-		// Skip approval (auto-approve in Phase 1).
+		task.AddPipelineStep(PhaseApproval, "running")
+		task.CompletePipelineStep(PhaseApproval, "skipped", "auto approval step skipped", "")
 
-		// Transition to deploying.
 		if err := Transition(task, PhaseDeploying); err != nil {
 			completeAttempt(&retryAttempt, "failed", ReasonDeploy)
 			task.Attempts = append(task.Attempts, retryAttempt)
 			return fmt.Errorf("transition to deploying for retry: %w", err)
 		}
 		e.notifyPhase(ctx, task, PhaseDeploying)
+		task.AddPipelineStep(PhaseDeploying, "running")
 
 		deployResult, err := stepDeploy(ctx, e.deploy, vars)
 		if err != nil {
+			task.CompletePipelineStep(PhaseDeploying, "failed", "", err.Error())
 			completeAttempt(&retryAttempt, "failed", ReasonDeploy)
 			task.Attempts = append(task.Attempts, retryAttempt)
 			return fmt.Errorf("deploy retry: %w", err)
@@ -96,30 +99,57 @@ func retryLoop(
 		retryAttempt.Deploy = deployResult
 
 		if deployResult.Status != "success" {
+			task.CompletePipelineStep(PhaseDeploying, "failed", deployResult.Output, "deploy failed during retry")
 			completeAttempt(&retryAttempt, "failed", ReasonDeploy)
 			task.Attempts = append(task.Attempts, retryAttempt)
-			return fmt.Errorf("deploy failed during retry")
-		}
 
-		// Transition to testing.
+			err = e.handleDeployFailure(ctx, task, deployResult.Output)
+			if err != nil {
+				if errors.Is(err, ErrAwaitingApproval) {
+					return ErrAwaitingApproval
+				}
+				return fmt.Errorf("deploy failed during retry: %w", err)
+			}
+
+			if err := Transition(task, PhaseDeploying); err != nil {
+				return fmt.Errorf("transition to deploying after auto fix: %w", err)
+			}
+			e.notifyPhase(ctx, task, PhaseDeploying)
+			task.AddPipelineStep(PhaseDeploying, "running")
+
+			deployResult, err = stepDeploy(ctx, e.deploy, vars)
+			if err != nil {
+				task.CompletePipelineStep(PhaseDeploying, "failed", "", err.Error())
+				return fmt.Errorf("deploy retry after auto fix: %w", err)
+			}
+			retryAttempt.Deploy = deployResult
+			if deployResult.Status != "success" {
+				task.CompletePipelineStep(PhaseDeploying, "failed", deployResult.Output, "deploy failed after auto-apply")
+				return fmt.Errorf("deploy failed during retry after auto-apply")
+			}
+		}
+		task.CompletePipelineStep(PhaseDeploying, "success", deployResult.Output, "")
+
 		if err := Transition(task, PhaseTesting); err != nil {
 			completeAttempt(&retryAttempt, "failed", ReasonTest)
 			task.Attempts = append(task.Attempts, retryAttempt)
 			return fmt.Errorf("transition to testing for retry: %w", err)
 		}
 		e.notifyPhase(ctx, task, PhaseTesting)
+		task.AddPipelineStep(PhaseTesting, "running")
 
 		results, allPassed := stepTest(ctx, e.testRunners, vars)
 		retryAttempt.Tests = results
 
 		if allPassed {
+			task.CompletePipelineStep(PhaseTesting, "success", "all tests passed", "")
 			completeAttempt(&retryAttempt, "passed", "")
 			task.Attempts = append(task.Attempts, retryAttempt)
 			log.Printf("[engine] retry %d succeeded for task %s", retryCount, task.ID)
 			return nil
 		}
 
-		// Update for next iteration.
+		task.CompletePipelineStep(PhaseTesting, "failed", collectTestOutput(results), "test failures detected")
 		completeAttempt(&retryAttempt, "failed", ReasonTest)
 		task.Attempts = append(task.Attempts, retryAttempt)
 		testResults = results

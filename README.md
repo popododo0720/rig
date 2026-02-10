@@ -7,8 +7,11 @@ GitHub 이슈를 받아 AI가 코드를 생성하고, 배포하고, 테스트하
 
 - **이슈 → PR 자동화**: `rig` 라벨이 붙은 이슈를 자동 처리
 - **셀프 힐링**: 테스트 실패 시 AI가 분석 후 재시도 (최대 10회)
+- **배포 실패 자동 분석**: 배포 실패 시 AI가 인프라 파일을 분석하고 수정안 제안
+- **제안/승인 시스템**: AI가 제안한 인프라 변경사항을 사람이 검토 후 승인/거부
 - **유연한 배포**: 로컬 커맨드, SSH 원격 실행, Docker Compose 지원
-- **상태 머신**: 10단계 실행 사이클 + 롤백
+- **상태 머신**: 12단계 실행 사이클 + 파이프라인 추적 + 롤백
+- **웹 대시보드**: 파이프라인 시각화, 제안 Diff 뷰어, 승인/거부 버튼
 - **웹훅 서버**: GitHub 이벤트 수신 → 자동 트리거
 
 ## 빠른 시작
@@ -158,6 +161,54 @@ ai:
 > Ollama는 기본적으로 `http://localhost:11434`에서 실행됩니다.
 > 다른 호스트를 사용하려면 환경 변수 설정: `export OLLAMA_API_ENDPOINT="http://remote:11434/v1/chat/completions"`
 
+### 배포 실패 분석 + 승인 설정
+
+```yaml
+deploy:
+  method: custom
+  config:
+    commands:
+      - name: deploy
+        run: "ansible-playbook deploy.yml"
+        timeout: 300s
+        transport:
+          type: local
+
+  # AI가 분석할 인프라 파일 패턴 (glob)
+  infra_files:
+    - "deploy/*.yml"
+    - "docker-compose*.yml"
+    - "nginx/*.conf"
+    - "k8s/*.yaml"
+
+  # AI가 읽기만 할 수 있는 파일 (수정 제안 불가)
+  infra_readonly:
+    - "secrets/*.yml"
+
+  # 승인 모드
+  approval:
+    mode: manual        # manual | auto | suggest-only
+    timeout: 24h        # 승인 대기 타임아웃
+```
+
+**제안 워크플로우:**
+
+```bash
+# 배포 실패 → AI가 제안 생성 → awaiting_approval 상태
+
+# 1. 대기 중인 제안 확인
+./rig proposals
+
+# 2. 특정 태스크의 제안 확인
+./rig proposals <task-id>
+
+# 3. 제안 승인 (수정 적용 + 재배포)
+./rig approve <task-id>
+
+# 4. 제안 거부 (태스크 실패 처리)
+./rig reject <task-id>
+```
+
 ### SSH 원격 배포
 
 ```yaml
@@ -258,6 +309,9 @@ notify:
 | `run` | 웹훅 서버 시작 | `rig run [-p 9000] [-c config]` |
 | `status` | 태스크 상태 조회 | `rig status` |
 | `logs` | 태스크 로그 조회 | `rig logs <task-id>` |
+| `proposals` | 대기 중인 제안 조회 | `rig proposals [task-id]` |
+| `approve` | 제안 승인 + 재실행 | `rig approve <task-id> [-c config]` |
+| `reject` | 제안 거부 + 태스크 실패 | `rig reject <task-id> [-c config]` |
 | `web` | 웹 대시보드 시작 | `rig web [-p 3000] [-c config]` |
 | `doctor` | 환경 진단 | `rig doctor` |
 | `version` | 버전 출력 | `rig version` |
@@ -289,17 +343,36 @@ notify:
   ┌───────────┐
   │ deploying │  배포 어댑터 실행
   └────┬───────┘
-       ▼
-  ┌──────────┐
-  │ testing  │  테스트 실행
-  └────┬──────┘
        │
-       ├── 통과 → reporting → completed (PR 생성)
-       │
-       └── 실패 → AI 실패 분석 → 코드 수정 → 재배포 → 재테스트
-                   (max_retry회까지 반복)
-                   초과 → rollback → failed
+       ├── 성공 ──────────────────────────┐
+       │                                  ▼
+       └── 실패 → AI 인프라 분석     ┌──────────┐
+                   │                 │ testing  │
+                   ▼                 └────┬──────┘
+          ┌──────────────────┐            │
+          │awaiting_approval │            ├── 통과 → reporting → completed (PR 생성)
+          │  (수정안 제안)    │            │
+          └────┬─────────────┘            └── 실패 → AI 실패 분석 → 코드 수정
+               │                                      → 재배포 → 재테스트
+               ├── 승인 → 수정 적용 → 재배포            (max_retry회까지 반복)
+               │                                      초과 → rollback → failed
+               └── 거부 → failed
 ```
+
+### 배포 실패 분석 (Deploy Failure Analysis)
+
+배포가 실패하면 AI가 자동으로:
+1. 배포 로그를 분석
+2. 설정된 인프라 파일(`infra_files`)을 읽음
+3. 수정안을 생성하여 **Proposal**로 제안
+
+승인 모드에 따라 동작이 달라집니다:
+
+| 모드 | 동작 |
+|------|------|
+| `manual` (기본값) | AI가 제안 → 사람이 승인/거부 → 승인 시 재배포 |
+| `auto` | AI가 제안 → 자동 적용 → 즉시 재배포 |
+| `suggest-only` | AI가 제안만 → 로그에 출력 → 태스크 실패 처리 |
 
 ---
 
@@ -326,16 +399,20 @@ rig/
 │   ├── validate.go           # validate
 │   ├── status.go             # status
 │   ├── logs.go               # logs
+│   ├── proposals.go          # proposals (대기 중인 제안 조회)
+│   ├── approve.go            # approve (제안 승인 + 재실행)
+│   ├── reject.go             # reject (제안 거부)
 │   ├── doctor.go             # doctor
 │   └── web.go                # web (대시보드 서버)
 │
 ├── internal/
 │   ├── config/               # 설정 로딩 + 검증
 │   ├── core/                 # 핵심 엔진
-│   │   ├── engine.go         # 10단계 오케스트레이터
+│   │   ├── engine.go         # 12단계 오케스트레이터 + 제안/승인 시스템
 │   │   ├── workflow.go       # 어댑터 인터페이스 + 단계 함수
 │   │   ├── retry.go          # 셀프 힐링 재시도 루프
-│   │   └── state.go          # 상태 머신 + JSON 영속화
+│   │   ├── infra.go          # 인프라 파일 로딩 헬퍼
+│   │   └── state.go          # 상태 머신 + 제안/파이프라인 타입 + JSON 영속화
 │   ├── adapter/
 │   │   ├── ai/               # AI 어댑터 (Anthropic, OpenAI, Ollama)
 │   │   ├── git/              # GitHub API + Git CLI
@@ -364,9 +441,10 @@ rig/
 
 ```go
 type AIAdapter interface {
-    AnalyzeIssue(ctx, issue, projectContext) (*AIPlan, error)
-    GenerateCode(ctx, plan, repoFiles)       ([]AIFileChange, error)
-    AnalyzeFailure(ctx, logs, currentCode)   ([]AIFileChange, error)
+    AnalyzeIssue(ctx, issue, projectContext)            (*AIPlan, error)
+    GenerateCode(ctx, plan, repoFiles)                  ([]AIFileChange, error)
+    AnalyzeFailure(ctx, logs, currentCode)              ([]AIFileChange, error)
+    AnalyzeDeployFailure(ctx, deployLogs, infraFiles)   (*AIProposedFix, error)
 }
 
 type GitAdapter interface {
@@ -408,15 +486,22 @@ open http://localhost:3000
 
 대시보드 기능:
 - 실시간 태스크 상태 모니터링 (SSE)
-- 태스크 상세: 시도 타임라인, 배포 결과, 테스트 결과
+- **파이프라인 시각화**: 각 단계별 진행 상태 (성공/실패/실행 중/건너뜀)
+- **제안 Diff 뷰어**: AI가 제안한 인프라 변경사항을 Before/After로 비교
+- **승인/거부 버튼**: 대기 중인 제안을 웹에서 바로 처리
+- 태스크 상세: 시도 타임라인, 배포 결과, 테스트 결과, 에러 사유
 - PR 링크 바로가기
-- 다크 테마
+- 다크 테마 (Ink & Ember)
 
 API 엔드포인트:
 | 경로 | 설명 |
 |------|------|
-| `GET /api/tasks` | 전체 태스크 목록 |
+| `GET /api/tasks` | 전체 태스크 목록 (파이프라인 + 제안 포함) |
 | `GET /api/tasks/{id}` | 태스크 상세 |
+| `GET /api/proposals` | 대기 중인 제안 목록 |
+| `GET /api/proposals/{taskId}` | 특정 태스크의 대기 중인 제안 |
+| `POST /api/approve/{taskId}` | 제안 승인 |
+| `POST /api/reject/{taskId}` | 제안 거부 |
 | `GET /api/config` | 프로젝트 설정 (민감 정보 제외) |
 | `GET /api/events` | SSE 실시간 이벤트 스트림 |
 

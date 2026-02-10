@@ -152,6 +152,44 @@ Respond in the following JSON format ONLY (no markdown fences, no extra text):
 	return parseFileChanges(body)
 }
 
+// AnalyzeDeployFailure sends deploy logs and infra files to Anthropic for deploy fix suggestions.
+func (a *AnthropicAdapter) AnalyzeDeployFailure(ctx context.Context, deployLogs string, infraFiles map[string]string) (*core.AIProposedFix, error) {
+	systemPrompt := "You are a DevOps assistant. Analyze deployment failure logs and infrastructure config files to diagnose the issue and suggest fixes. For each file change, explain WHY it needs to be modified."
+
+	var infraSection strings.Builder
+	for path, content := range infraFiles {
+		infraSection.WriteString(fmt.Sprintf("--- %s ---\n%s\n", path, content))
+	}
+
+	userPrompt := fmt.Sprintf(
+		`Analyze the following deployment failure and suggest infrastructure file changes to fix it.
+
+Deploy Failure Logs:
+%s
+
+Infrastructure Files:
+%s
+
+Respond in the following JSON format ONLY (no markdown fences, no extra text):
+{
+  "summary": "Brief summary of the deployment issue",
+  "reason": "Root cause analysis",
+  "changes": [
+    {"path": "ansible/playbook.yml", "action": "modify", "reason": "Port mismatch", "content": "full content..."}
+  ]
+}`,
+		deployLogs,
+		infraSection.String(),
+	)
+
+	body, err := a.sendMessage(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("anthropic: analyze deploy failure: %w", err)
+	}
+
+	return parseProposedFix(body)
+}
+
 // anthropicRequest is the Anthropic Messages API request body.
 type anthropicRequest struct {
 	Model     string             `json:"model"`
@@ -313,6 +351,34 @@ func parseFileChanges(raw string) ([]core.AIFileChange, error) {
 	}
 
 	return changes, nil
+}
+
+// parseProposedFix extracts an AIProposedFix from a JSON string.
+func parseProposedFix(raw string) (*core.AIProposedFix, error) {
+	cleaned := cleanJSON(raw)
+	if cleaned == "" {
+		return nil, fmt.Errorf("empty proposed fix response")
+	}
+
+	var fix core.AIProposedFix
+	if err := json.Unmarshal([]byte(cleaned), &fix); err != nil {
+		return nil, fmt.Errorf("parse proposed fix: %w (raw: %.200s)", err, raw)
+	}
+
+	if fix.Summary == "" {
+		return nil, fmt.Errorf("parsed proposed fix has empty summary")
+	}
+
+	for i, change := range fix.Changes {
+		if change.Path == "" {
+			return nil, fmt.Errorf("proposed change %d: missing path", i)
+		}
+		if change.Action == "" {
+			return nil, fmt.Errorf("proposed change %d: missing action", i)
+		}
+	}
+
+	return &fix, nil
 }
 
 // cleanJSON strips optional markdown code fences and trims whitespace.

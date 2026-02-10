@@ -60,6 +60,10 @@ func NewHandler(statePath string, cfg *config.Config) http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/tasks", handleGetTasks(statePath))
 		r.Get("/tasks/{id}", handleGetTask(statePath))
+		r.Get("/proposals", handleGetProposals(statePath))
+		r.Get("/proposals/{taskId}", handleGetTaskProposals(statePath))
+		r.Post("/approve/{taskId}", handleApprove(statePath, cfg))
+		r.Post("/reject/{taskId}", handleReject(statePath))
 		r.Get("/config", handleGetConfig(cfg))
 		r.Get("/events", handleSSE(statePath))
 	})
@@ -135,6 +139,146 @@ func handleGetConfig(cfg *config.Config) http.HandlerFunc {
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, resp)
+	}
+}
+
+type pendingProposalItem struct {
+	TaskID    string        `json:"task_id"`
+	TaskTitle string        `json:"task_title"`
+	Proposal  core.Proposal `json:"proposal"`
+}
+
+func handleGetProposals(statePath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		state, err := core.LoadState(statePath)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		items := make([]pendingProposalItem, 0)
+		for _, task := range state.Tasks {
+			for _, proposal := range task.Proposals {
+				if proposal.Status != core.ProposalPending {
+					continue
+				}
+				items = append(items, pendingProposalItem{
+					TaskID:    task.ID,
+					TaskTitle: task.Issue.Title,
+					Proposal:  proposal,
+				})
+			}
+		}
+
+		writeJSON(w, http.StatusOK, items)
+	}
+}
+
+func handleGetTaskProposals(statePath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		taskID := chi.URLParam(r, "taskId")
+
+		state, err := core.LoadState(statePath)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		task := state.GetTaskByID(taskID)
+		if task == nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			return
+		}
+
+		proposals := make([]core.Proposal, 0)
+		for _, proposal := range task.Proposals {
+			if proposal.Status == core.ProposalPending {
+				proposals = append(proposals, proposal)
+			}
+		}
+
+		writeJSON(w, http.StatusOK, proposals)
+	}
+}
+
+func handleApprove(statePath string, _ *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		taskID := chi.URLParam(r, "taskId")
+
+		state, err := core.LoadState(statePath)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		task := state.GetTaskByID(taskID)
+		if task == nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			return
+		}
+
+		proposal := task.GetPendingProposal()
+		if proposal == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no pending proposal"})
+			return
+		}
+
+		now := time.Now().UTC()
+		proposal.Status = core.ProposalApproved
+		proposal.ReviewedAt = &now
+
+		if err := core.SaveState(state, statePath); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":  "approved",
+			"message": "Proposal approved. Task will resume on next engine cycle.",
+		})
+	}
+}
+
+func handleReject(statePath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		taskID := chi.URLParam(r, "taskId")
+
+		state, err := core.LoadState(statePath)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		task := state.GetTaskByID(taskID)
+		if task == nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			return
+		}
+
+		proposal := task.GetPendingProposal()
+		if proposal == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no pending proposal"})
+			return
+		}
+
+		now := time.Now().UTC()
+		proposal.Status = core.ProposalRejected
+		proposal.ReviewedAt = &now
+
+		if err := core.Transition(task, core.PhaseFailed); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+
+		if err := core.SaveState(state, statePath); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":  "rejected",
+			"message": "Proposal rejected. Task marked as failed.",
+		})
 	}
 }
 

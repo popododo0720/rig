@@ -39,6 +39,7 @@
   --status-completed: #5cc989;
   --status-failed: #e05c5c;
   --status-rollback: #b07ce0;
+  --status-awaiting: #e8a44a;
 
   /* Spacing scale */
   --sp-1: 4px;
@@ -227,6 +228,7 @@ body::before {
 .stat-card--active .stat-card__value { color: var(--status-active); }
 .stat-card--completed .stat-card__value { color: var(--status-completed); }
 .stat-card--failed .stat-card__value { color: var(--status-failed); }
+.stat-card--awaiting .stat-card__value { color: var(--status-awaiting); }
 
 .sidebar__config {
   margin-top: auto;
@@ -401,6 +403,22 @@ body::before {
 .badge--rollback  { background: rgba(176,124,224,0.15); color: #b07ce0; }
 .badge--rollback::before { background: var(--status-rollback); }
 
+.badge--awaiting_approval {
+  background: rgba(232, 164, 74, 0.18);
+  color: var(--accent);
+  box-shadow: 0 0 12px rgba(232, 164, 74, 0.15), inset 0 0 0 1px rgba(232, 164, 74, 0.2);
+  animation: awaiting-glow 2s ease-in-out infinite;
+}
+.badge--awaiting_approval::before {
+  background: var(--status-awaiting);
+  animation: pulse-badge 1.5s ease-in-out infinite;
+}
+
+@keyframes awaiting-glow {
+  0%, 100% { box-shadow: 0 0 12px rgba(232, 164, 74, 0.15), inset 0 0 0 1px rgba(232, 164, 74, 0.2); }
+  50% { box-shadow: 0 0 20px rgba(232, 164, 74, 0.3), inset 0 0 0 1px rgba(232, 164, 74, 0.35); }
+}
+
 /* Active phase animation */
 .badge--planning::before,
 .badge--coding::before,
@@ -468,6 +486,528 @@ body::before {
   width: 12px;
   height: 1px;
   background: var(--accent-dim);
+}
+
+/* ─── PIPELINE VISUALIZATION ─── */
+.pipeline {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  padding: var(--sp-3) 0;
+  overflow-x: auto;
+}
+
+.pipeline__step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  flex: 1;
+  min-width: 80px;
+  cursor: default;
+}
+
+.pipeline__step--clickable {
+  cursor: pointer;
+}
+
+.pipeline__step--clickable:hover .pipeline__node {
+  transform: scale(1.15);
+}
+
+.pipeline__connector {
+  position: absolute;
+  top: 14px;
+  left: calc(50% + 16px);
+  right: calc(-50% + 16px);
+  height: 2px;
+  background: var(--surface-4);
+  z-index: 0;
+}
+
+.pipeline__connector--success {
+  background: var(--status-completed);
+  box-shadow: 0 0 6px rgba(92, 201, 137, 0.3);
+}
+
+.pipeline__connector--running {
+  background: linear-gradient(90deg, var(--status-active), var(--surface-4));
+  animation: connector-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes connector-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.pipeline__connector--failed {
+  background: var(--status-failed);
+  box-shadow: 0 0 6px rgba(224, 92, 92, 0.3);
+}
+
+.pipeline__node {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  position: relative;
+  z-index: 1;
+  transition: transform var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
+  border: 2px solid var(--surface-4);
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.pipeline__node--pending {
+  border-color: var(--surface-4);
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.pipeline__node--success {
+  border-color: var(--status-completed);
+  background: rgba(92, 201, 137, 0.15);
+  color: var(--status-completed);
+  box-shadow: 0 0 10px rgba(92, 201, 137, 0.2);
+}
+
+.pipeline__node--failed {
+  border-color: var(--status-failed);
+  background: rgba(224, 92, 92, 0.15);
+  color: var(--status-failed);
+  box-shadow: 0 0 10px rgba(224, 92, 92, 0.2);
+}
+
+.pipeline__node--running {
+  border-color: var(--status-active);
+  background: rgba(91, 158, 233, 0.15);
+  color: var(--status-active);
+  box-shadow: 0 0 12px rgba(91, 158, 233, 0.3);
+  animation: node-running 2s ease-in-out infinite;
+}
+
+@keyframes node-running {
+  0%, 100% { box-shadow: 0 0 12px rgba(91, 158, 233, 0.3); }
+  50% { box-shadow: 0 0 22px rgba(91, 158, 233, 0.5); }
+}
+
+.pipeline__node--skipped {
+  border-color: var(--surface-4);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  opacity: 0.4;
+}
+
+.pipeline__node--awaiting {
+  border-color: var(--status-awaiting);
+  background: rgba(232, 164, 74, 0.15);
+  color: var(--status-awaiting);
+  box-shadow: 0 0 12px rgba(232, 164, 74, 0.25);
+  animation: node-awaiting 2s ease-in-out infinite;
+}
+
+@keyframes node-awaiting {
+  0%, 100% { box-shadow: 0 0 12px rgba(232, 164, 74, 0.25); }
+  50% { box-shadow: 0 0 22px rgba(232, 164, 74, 0.45); }
+}
+
+.pipeline__icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.pipeline__label {
+  margin-top: var(--sp-1);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.pipeline__step--success .pipeline__label { color: var(--status-completed); }
+.pipeline__step--failed .pipeline__label { color: var(--status-failed); }
+.pipeline__step--running .pipeline__label { color: var(--status-active); }
+.pipeline__step--awaiting .pipeline__label { color: var(--status-awaiting); }
+
+.pipeline__timing {
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.pipeline__error {
+  margin-top: var(--sp-1);
+  font-size: 10px;
+  color: var(--status-failed);
+  max-width: 120px;
+  text-align: center;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+/* Pipeline step output expandable */
+.pipeline-output {
+  margin-top: var(--sp-3);
+  background: var(--surface-0);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-s);
+  overflow: hidden;
+  animation: slideDown var(--duration-fast) var(--ease-out);
+}
+
+.pipeline-output__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-2) var(--sp-3);
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--surface-3);
+}
+
+.pipeline-output__close {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--radius-s);
+  border: none;
+  background: none;
+  font-family: inherit;
+  transition: color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
+}
+
+.pipeline-output__close:hover {
+  color: var(--text-primary);
+  background: var(--surface-3);
+}
+
+.pipeline-output__pre {
+  padding: var(--sp-3);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  overflow-x: auto;
+  max-height: 250px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  font-family: inherit;
+}
+
+.pipeline-output__pre--error {
+  color: var(--status-failed);
+}
+
+/* ─── PROPOSALS SECTION ─── */
+.proposal-card {
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-m);
+  margin-bottom: var(--sp-3);
+  overflow: hidden;
+}
+
+.proposal-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) var(--sp-4);
+  gap: var(--sp-3);
+}
+
+.proposal-card__title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.proposal-card__type {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: var(--radius-s);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  white-space: nowrap;
+  background: rgba(91, 158, 233, 0.12);
+  color: #7db4f0;
+  border: 1px solid rgba(91, 158, 233, 0.2);
+}
+
+.proposal-card__type--deploy_fix { background: rgba(226,200,75,0.12); color: #e2c84b; border-color: rgba(226,200,75,0.2); }
+.proposal-card__type--test_fix { background: rgba(224,150,64,0.12); color: #e09640; border-color: rgba(224,150,64,0.2); }
+.proposal-card__type--infra_fix { background: rgba(176,124,224,0.12); color: #b07ce0; border-color: rgba(176,124,224,0.2); }
+
+.proposal-card__summary {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proposal-card__status {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  white-space: nowrap;
+}
+
+.proposal-card__status--pending {
+  background: rgba(232, 164, 74, 0.15);
+  color: var(--accent);
+}
+
+.proposal-card__status--approved {
+  background: rgba(92, 201, 137, 0.15);
+  color: var(--status-completed);
+}
+
+.proposal-card__status--rejected {
+  background: rgba(224, 92, 92, 0.15);
+  color: var(--status-failed);
+}
+
+.proposal-card__body {
+  padding: 0 var(--sp-4) var(--sp-4);
+}
+
+.proposal-card__reason {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: var(--sp-3);
+  line-height: 1.5;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-0);
+  border-radius: var(--radius-s);
+  border-left: 2px solid var(--surface-4);
+}
+
+/* ─── DIFF VIEWER ─── */
+.diff-file {
+  margin-bottom: var(--sp-3);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-s);
+  overflow: hidden;
+}
+
+.diff-file:last-child {
+  margin-bottom: 0;
+}
+
+.diff-file__header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-3);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.diff-file__header:hover {
+  background: var(--surface-4);
+}
+
+.diff-file__path {
+  color: var(--text-primary);
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-file__action {
+  display: inline-flex;
+  padding: 1px 6px;
+  border-radius: var(--radius-s);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.diff-file__action--create { background: rgba(92,201,137,0.15); color: var(--status-completed); }
+.diff-file__action--modify { background: rgba(91,158,233,0.15); color: #7db4f0; }
+.diff-file__action--delete { background: rgba(224,92,92,0.15); color: var(--status-failed); }
+
+.diff-file__chevron {
+  color: var(--text-muted);
+  font-size: 10px;
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.diff-file__chevron--open {
+  transform: rotate(90deg);
+}
+
+.diff-file__content {
+  display: none;
+}
+
+.diff-file__content--open {
+  display: block;
+}
+
+.diff-view {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.diff-view__col {
+  overflow-x: auto;
+  min-width: 0;
+}
+
+.diff-view__label {
+  padding: var(--sp-1) var(--sp-3);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--surface-3);
+}
+
+.diff-view__label--before {
+  background: rgba(224, 92, 92, 0.06);
+  color: var(--status-failed);
+  border-right: 1px solid var(--surface-3);
+}
+
+.diff-view__label--after {
+  background: rgba(92, 201, 137, 0.06);
+  color: var(--status-completed);
+}
+
+.diff-view__code {
+  padding: var(--sp-2) var(--sp-3);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow-y: auto;
+  tab-size: 2;
+  font-family: inherit;
+}
+
+.diff-view__code--before {
+  background: rgba(224, 92, 92, 0.04);
+  color: var(--text-secondary);
+  border-right: 1px solid var(--surface-3);
+}
+
+.diff-view__code--after {
+  background: rgba(92, 201, 137, 0.04);
+  color: var(--text-secondary);
+}
+
+.diff-view__code--empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ─── APPROVE / REJECT BUTTONS ─── */
+.proposal-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--radius-s);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all var(--duration-fast) var(--ease-out);
+  min-width: 100px;
+  height: 32px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn--approve {
+  background: rgba(92, 201, 137, 0.15);
+  color: var(--status-completed);
+  border-color: rgba(92, 201, 137, 0.3);
+}
+
+.btn--approve:hover:not(:disabled) {
+  background: rgba(92, 201, 137, 0.25);
+  box-shadow: 0 0 16px rgba(92, 201, 137, 0.2);
+}
+
+.btn--reject {
+  background: transparent;
+  color: var(--status-failed);
+  border-color: rgba(224, 92, 92, 0.3);
+}
+
+.btn--reject:hover:not(:disabled) {
+  background: rgba(224, 92, 92, 0.1);
+  box-shadow: 0 0 16px rgba(224, 92, 92, 0.15);
+}
+
+.btn__spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.proposal-actions__msg {
+  font-size: 11px;
+  margin-left: var(--sp-2);
+}
+
+.proposal-actions__msg--ok {
+  color: var(--status-completed);
+}
+
+.proposal-actions__msg--err {
+  color: var(--status-failed);
 }
 
 /* ─── ATTEMPTS TIMELINE ─── */
@@ -676,6 +1216,12 @@ body::before {
   .task-row td:nth-child(5) {
     display: none;
   }
+  .diff-view {
+    grid-template-columns: 1fr;
+  }
+  .pipeline__step {
+    min-width: 60px;
+  }
 }
 
 /* ─── SCROLLBAR ─── */
@@ -724,6 +1270,10 @@ body::before {
           <div class="stat-card__value" id="stat-active">-</div>
           <div class="stat-card__label">In Progress</div>
         </div>
+        <div class="stat-card stat-card--awaiting">
+          <div class="stat-card__value" id="stat-awaiting">-</div>
+          <div class="stat-card__label">Awaiting Approval</div>
+        </div>
         <div class="stat-card stat-card--completed">
           <div class="stat-card__value" id="stat-completed">-</div>
           <div class="stat-card__label">Completed</div>
@@ -764,6 +1314,21 @@ body::before {
   var sseConnected = false;
   var pollTimer = null;
   var evtSource = null;
+  var expandedPipelineStep = null;
+  var expandedDiffFiles = {};
+
+  // ── Pipeline phase order ──
+  var PIPELINE_PHASES = [
+    "queued", "planning", "coding", "committing",
+    "deploying", "awaiting_approval", "testing", "reporting", "completed"
+  ];
+
+  // SVG icons for pipeline nodes
+  var ICON_CHECK = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  var ICON_X = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 3L9 9M9 3L3 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  var ICON_PLAY = '<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M2 1L9 5L2 9Z"/></svg>';
+  var ICON_SKIP = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5H8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+  var ICON_CLOCK = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1.2"/><path d="M5 3V5.5L6.5 6.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>';
 
   // ── DOM refs ──
   var $container = document.getElementById("task-container");
@@ -771,6 +1336,7 @@ body::before {
   var $active = document.getElementById("stat-active");
   var $completed = document.getElementById("stat-completed");
   var $failed = document.getElementById("stat-failed");
+  var $awaiting = document.getElementById("stat-awaiting");
   var $dot = document.getElementById("status-dot");
   var $statusLabel = document.getElementById("status-label");
   var $lastUpdated = document.getElementById("last-updated");
@@ -780,7 +1346,8 @@ body::before {
   // ── Helpers ──
   var activePhases = {
     planning: true, coding: true, committing: true,
-    approval: true, deploying: true, testing: true, reporting: true
+    approval: true, deploying: true, testing: true,
+    reporting: true, awaiting_approval: true
   };
 
   function escapeHTML(str) {
@@ -825,6 +1392,18 @@ body::before {
     return m + "m " + s + "s";
   }
 
+  function formatStepDuration(startIso, endIso) {
+    if (!startIso) return "";
+    var s = new Date(startIso);
+    var e = endIso ? new Date(endIso) : new Date();
+    var diff = Math.max(0, e - s);
+    var secs = Math.floor(diff / 1000);
+    if (secs < 60) return secs + "s";
+    var mins = Math.floor(secs / 60);
+    secs = secs % 60;
+    return mins + "m " + secs + "s";
+  }
+
   function setConnected(connected) {
     sseConnected = connected;
     if (connected) {
@@ -839,18 +1418,302 @@ body::before {
   // ── Stats ──
   function updateStats() {
     var total = tasks.length;
-    var active = 0, completed = 0, failed = 0;
+    var active = 0, completed = 0, failed = 0, awaiting = 0;
     for (var i = 0; i < tasks.length; i++) {
       var s = tasks[i].status;
       if (s === "completed") completed++;
       else if (s === "failed" || s === "rollback") failed++;
+      else if (s === "awaiting_approval") awaiting++;
       else if (activePhases[s]) active++;
     }
     $total.textContent = total;
     $active.textContent = active;
     $completed.textContent = completed;
     $failed.textContent = failed;
+    $awaiting.textContent = awaiting;
     $lastUpdated.textContent = "Updated " + new Date().toLocaleTimeString();
+  }
+
+  // ── Build pipeline phase map from task data ──
+  function buildPipelineMap(task) {
+    var pipeline = task.pipeline || [];
+    var map = {};
+    for (var i = 0; i < pipeline.length; i++) {
+      map[pipeline[i].phase] = pipeline[i];
+    }
+    return map;
+  }
+
+  // ── Render pipeline bar ──
+  function renderPipeline(task) {
+    var map = buildPipelineMap(task);
+    var html = '<div class="pipeline">';
+
+    for (var i = 0; i < PIPELINE_PHASES.length; i++) {
+      var phase = PIPELINE_PHASES[i];
+      var step = map[phase];
+      var status = step ? step.status : "pending";
+      var nodeClass = "pipeline__node pipeline__node--" + status;
+      var stepClass = "pipeline__step pipeline__step--" + status;
+      var hasContent = step && (step.output || step.error);
+      if (hasContent) {
+        stepClass += " pipeline__step--clickable";
+      }
+
+      var icon;
+      if (status === "success") icon = ICON_CHECK;
+      else if (status === "failed") icon = ICON_X;
+      else if (status === "running") icon = ICON_PLAY;
+      else if (status === "skipped") icon = ICON_SKIP;
+      else if (status === "awaiting") icon = ICON_CLOCK;
+      else icon = ICON_CLOCK;
+
+      var displayLabel = phase === "awaiting_approval" ? "approval" : phase;
+
+      html += '<div class="' + stepClass + '"' +
+        (hasContent ? ' onclick="togglePipelineOutput(\'' + escapeHTML(task.id) + '\', \'' + escapeHTML(phase) + '\', event)"' : '') +
+        '>';
+
+      if (i > 0) {
+        var prevPhase = PIPELINE_PHASES[i - 1];
+        var prevStep = map[prevPhase];
+        var prevStatus = prevStep ? prevStep.status : "pending";
+        var connClass = "pipeline__connector";
+        if (prevStatus === "success") connClass += " pipeline__connector--success";
+        else if (prevStatus === "running") connClass += " pipeline__connector--running";
+        else if (prevStatus === "failed") connClass += " pipeline__connector--failed";
+        html += '<div class="' + connClass + '"></div>';
+      }
+
+      html += '<div class="' + nodeClass + '"><span class="pipeline__icon">' + icon + '</span></div>';
+      html += '<span class="pipeline__label">' + escapeHTML(displayLabel) + '</span>';
+
+      if (step && step.started_at) {
+        html += '<span class="pipeline__timing">' + formatStepDuration(step.started_at, step.ended_at) + '</span>';
+      }
+
+      if (step && step.error && status === "failed") {
+        var shortErr = step.error.length > 60 ? step.error.substring(0, 60) + "..." : step.error;
+        html += '<div class="pipeline__error">' + escapeHTML(shortErr) + '</div>';
+      }
+
+      html += '</div>';
+    }
+
+    html += '</div>';
+
+    if (expandedPipelineStep && expandedPipelineStep.taskId === task.id) {
+      var activeStep = map[expandedPipelineStep.phase];
+      if (activeStep && (activeStep.output || activeStep.error)) {
+        html += '<div class="pipeline-output">';
+        html += '<div class="pipeline-output__header">';
+        html += '<span>' + escapeHTML(expandedPipelineStep.phase) + (activeStep.error ? ' - Error' : ' - Output') + '</span>';
+        html += '<button class="pipeline-output__close" onclick="closePipelineOutput(event)">x</button>';
+        html += '</div>';
+        if (activeStep.error) {
+          html += '<pre class="pipeline-output__pre pipeline-output__pre--error">' + escapeHTML(activeStep.error) + '</pre>';
+        }
+        if (activeStep.output) {
+          html += '<pre class="pipeline-output__pre">' + escapeHTML(activeStep.output) + '</pre>';
+        }
+        html += '</div>';
+      }
+    }
+
+    return html;
+  }
+
+  // ── Toggle pipeline step output ──
+  window.togglePipelineOutput = function(taskId, phase, e) {
+    e.stopPropagation();
+    if (expandedPipelineStep && expandedPipelineStep.taskId === taskId && expandedPipelineStep.phase === phase) {
+      expandedPipelineStep = null;
+    } else {
+      expandedPipelineStep = { taskId: taskId, phase: phase };
+    }
+    renderTasks();
+  };
+
+  window.closePipelineOutput = function(e) {
+    e.stopPropagation();
+    expandedPipelineStep = null;
+    renderTasks();
+  };
+
+  // ── Render proposals section ──
+  function renderProposals(task) {
+    var proposals = task.proposals || [];
+    if (proposals.length === 0) return "";
+
+    var html = '<div class="detail-panel__section">' +
+      '<div class="detail-panel__heading">Proposals (' + proposals.length + ')</div>';
+
+    for (var p = 0; p < proposals.length; p++) {
+      var prop = proposals[p];
+      var statusClass = "proposal-card__status--" + (prop.status || "pending");
+      var typeClass = "proposal-card__type--" + (prop.type || "").replace(/ /g, "_");
+
+      html += '<div class="proposal-card">';
+      html += '<div class="proposal-card__header">';
+      html += '<div class="proposal-card__title-row">';
+      if (prop.type) {
+        html += '<span class="proposal-card__type ' + typeClass + '">' + escapeHTML(prop.type) + '</span>';
+      }
+      html += '<span class="proposal-card__summary">' + escapeHTML(prop.summary || "Proposal #" + (p + 1)) + '</span>';
+      html += '</div>';
+      html += '<span class="proposal-card__status ' + statusClass + '">' + escapeHTML(prop.status || "pending") + '</span>';
+      html += '</div>';
+
+      html += '<div class="proposal-card__body">';
+
+      if (prop.reason) {
+        html += '<div class="proposal-card__reason">' + escapeHTML(prop.reason) + '</div>';
+      }
+
+      var changes = prop.changes || [];
+      if (changes.length > 0) {
+        html += '<div style="margin-bottom:var(--sp-2);font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);">Changes (' + changes.length + ' file' + (changes.length !== 1 ? 's' : '') + ')</div>';
+        for (var c = 0; c < changes.length; c++) {
+          html += renderDiffFile(task.id, p, c, changes[c]);
+        }
+      }
+
+      if (!prop.status || prop.status === "pending") {
+        html += '<div class="proposal-actions" id="proposal-actions-' + escapeHTML(task.id) + '-' + p + '">';
+        html += '<button class="btn btn--approve" onclick="approveTask(\'' + escapeHTML(task.id) + '\', ' + p + ', event)">Approve</button>';
+        html += '<button class="btn btn--reject" onclick="rejectTask(\'' + escapeHTML(task.id) + '\', ' + p + ', event)">Reject</button>';
+        html += '</div>';
+      }
+
+      html += '</div>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  // ── Render diff file ──
+  function renderDiffFile(taskId, proposalIdx, changeIdx, change) {
+    var diffKey = taskId + "-" + proposalIdx + "-" + changeIdx;
+    var isOpen = expandedDiffFiles[diffKey] || false;
+    var action = change.action || "modify";
+    var actionClass = "diff-file__action--" + action;
+
+    var html = '<div class="diff-file">';
+    html += '<div class="diff-file__header" onclick="toggleDiffFile(\'' + diffKey + '\', event)">';
+    html += '<span class="diff-file__action ' + actionClass + '">' + escapeHTML(action) + '</span>';
+    html += '<span class="diff-file__path">' + escapeHTML(change.path || change.file || "unknown") + '</span>';
+    html += '<span class="diff-file__chevron' + (isOpen ? ' diff-file__chevron--open' : '') + '">&#9654;</span>';
+    html += '</div>';
+
+    html += '<div class="diff-file__content' + (isOpen ? ' diff-file__content--open' : '') + '">';
+    html += '<div class="diff-view">';
+
+    html += '<div class="diff-view__col">';
+    html += '<div class="diff-view__label diff-view__label--before">Before</div>';
+    var beforeContent = change.before || change.original || "";
+    if (beforeContent) {
+      html += '<pre class="diff-view__code diff-view__code--before">' + escapeHTML(beforeContent) + '</pre>';
+    } else {
+      html += '<pre class="diff-view__code diff-view__code--before diff-view__code--empty">(empty)</pre>';
+    }
+    html += '</div>';
+
+    html += '<div class="diff-view__col">';
+    html += '<div class="diff-view__label diff-view__label--after">After</div>';
+    var afterContent = change.after || change.proposed || "";
+    if (afterContent) {
+      html += '<pre class="diff-view__code diff-view__code--after">' + escapeHTML(afterContent) + '</pre>';
+    } else {
+      html += '<pre class="diff-view__code diff-view__code--after diff-view__code--empty">(empty)</pre>';
+    }
+    html += '</div>';
+
+    html += '</div>';
+    html += '</div>';
+    html += '</div>';
+
+    return html;
+  }
+
+  // ── Toggle diff file ──
+  window.toggleDiffFile = function(key, e) {
+    e.stopPropagation();
+    expandedDiffFiles[key] = !expandedDiffFiles[key];
+    renderTasks();
+  };
+
+  // ── Approve / Reject API ──
+  window.approveTask = function(taskId, proposalIdx, e) {
+    e.stopPropagation();
+    var container = document.getElementById("proposal-actions-" + taskId + "-" + proposalIdx);
+    if (!container) return;
+    setActionLoading(container, "approve");
+
+    fetch("/api/approve/" + encodeURIComponent(taskId), { method: "POST" })
+      .then(function(r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        setActionMessage(container, data.message || "Approved", true);
+        fetchTasks();
+      })
+      .catch(function(err) {
+        setActionMessage(container, err.message || "Failed", false);
+        setActionButtons(container, taskId, proposalIdx);
+      });
+  };
+
+  window.rejectTask = function(taskId, proposalIdx, e) {
+    e.stopPropagation();
+    var container = document.getElementById("proposal-actions-" + taskId + "-" + proposalIdx);
+    if (!container) return;
+    setActionLoading(container, "reject");
+
+    fetch("/api/reject/" + encodeURIComponent(taskId), { method: "POST" })
+      .then(function(r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        setActionMessage(container, data.message || "Rejected", true);
+        fetchTasks();
+      })
+      .catch(function(err) {
+        setActionMessage(container, err.message || "Failed", false);
+        setActionButtons(container, taskId, proposalIdx);
+      });
+  };
+
+  function setActionLoading(container, type) {
+    var approveBtn = container.querySelector(".btn--approve");
+    var rejectBtn = container.querySelector(".btn--reject");
+    if (approveBtn) approveBtn.disabled = true;
+    if (rejectBtn) rejectBtn.disabled = true;
+    var targetBtn = type === "approve" ? approveBtn : rejectBtn;
+    if (targetBtn) {
+      targetBtn.innerHTML = '<span class="btn__spinner"></span> ' + (type === "approve" ? "Approving" : "Rejecting");
+    }
+  }
+
+  function setActionMessage(container, msg, isOk) {
+    var existingMsg = container.querySelector(".proposal-actions__msg");
+    if (existingMsg) existingMsg.remove();
+    var span = document.createElement("span");
+    span.className = "proposal-actions__msg " + (isOk ? "proposal-actions__msg--ok" : "proposal-actions__msg--err");
+    span.textContent = msg;
+    container.appendChild(span);
+  }
+
+  function setActionButtons(container, taskId, proposalIdx) {
+    setTimeout(function() {
+      var approveBtn = container.querySelector(".btn--approve");
+      var rejectBtn = container.querySelector(".btn--reject");
+      if (approveBtn) { approveBtn.disabled = false; approveBtn.innerHTML = "Approve"; }
+      if (rejectBtn) { rejectBtn.disabled = false; rejectBtn.innerHTML = "Reject"; }
+    }, 2000);
   }
 
   // ── Render tasks ──
@@ -916,12 +1779,24 @@ body::before {
     } else {
       expandedId = id;
     }
+    if (!expandedId) {
+      expandedPipelineStep = null;
+    }
     renderTasks();
   }
 
   // ── Render detail panel ──
   function renderDetail(task) {
     var html = '<div class="detail-panel">';
+
+    // Pipeline visualization (always at top)
+    var pipeline = task.pipeline || [];
+    if (pipeline.length > 0 || task.status) {
+      html += '<div class="detail-panel__section">' +
+        '<div class="detail-panel__heading">Pipeline</div>' +
+        renderPipeline(task) +
+        '</div>';
+    }
 
     // PR link
     if (task.pr && task.pr.url) {
@@ -931,6 +1806,9 @@ body::before {
           '&#8599; ' + escapeHTML(task.pr.url) +
         '</a></div>';
     }
+
+    // Proposals
+    html += renderProposals(task);
 
     // Attempts
     var attempts = task.attempts || [];

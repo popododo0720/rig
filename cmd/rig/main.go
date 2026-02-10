@@ -59,6 +59,9 @@ func main() {
 	webCmd.Flags().StringP("config", "c", "", "Path to config file")
 	webCmd.Flags().Int("port", 3000, "Dashboard server port")
 
+	approveCmd.Flags().StringP("config", "c", "rig.yaml", "Path to config file")
+	rejectCmd.Flags().StringP("config", "c", "rig.yaml", "Path to config file")
+
 	initCmd.Flags().String("template", "custom", "Template type (custom|docker)")
 
 	logsCmd.Flags().BoolP("follow", "f", false, "Follow logs (not yet implemented)")
@@ -71,6 +74,9 @@ func main() {
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(logsCmd)
+	rootCmd.AddCommand(proposalsCmd)
+	rootCmd.AddCommand(approveCmd)
+	rootCmd.AddCommand(rejectCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(webCmd)
 

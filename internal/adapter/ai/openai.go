@@ -151,6 +151,44 @@ Respond in the following JSON format ONLY (no markdown fences, no extra text):
 	return parseFileChanges(body)
 }
 
+// AnalyzeDeployFailure sends deploy logs and infra files to OpenAI for deploy fix suggestions.
+func (a *OpenAIAdapter) AnalyzeDeployFailure(ctx context.Context, deployLogs string, infraFiles map[string]string) (*core.AIProposedFix, error) {
+	systemPrompt := "You are a DevOps assistant. Analyze deployment failure logs and infrastructure config files to diagnose the issue and suggest fixes. For each file change, explain WHY it needs to be modified."
+
+	var infraSection strings.Builder
+	for path, content := range infraFiles {
+		infraSection.WriteString(fmt.Sprintf("--- %s ---\n%s\n", path, content))
+	}
+
+	userPrompt := fmt.Sprintf(
+		`Analyze the following deployment failure and suggest infrastructure file changes to fix it.
+
+Deploy Failure Logs:
+%s
+
+Infrastructure Files:
+%s
+
+Respond in the following JSON format ONLY (no markdown fences, no extra text):
+{
+  "summary": "Brief summary of the deployment issue",
+  "reason": "Root cause analysis",
+  "changes": [
+    {"path": "ansible/playbook.yml", "action": "modify", "reason": "Port mismatch", "content": "full content..."}
+  ]
+}`,
+		deployLogs,
+		infraSection.String(),
+	)
+
+	body, err := a.sendMessage(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("openai: analyze deploy failure: %w", err)
+	}
+
+	return parseProposedFix(body)
+}
+
 // openAIRequest is the OpenAI Chat Completions API request body.
 type openAIRequest struct {
 	Model       string          `json:"model"`

@@ -40,10 +40,19 @@ type AIConfig struct {
 
 // DeployConfig holds deployment settings.
 type DeployConfig struct {
-	Method   string             `yaml:"method"` // custom|docker-compose|terraform|ansible|k8s
-	Config   DeployMethodConfig `yaml:"config"`
-	Timeout  time.Duration      `yaml:"timeout"`
-	Rollback RollbackConfig     `yaml:"rollback"`
+	Method        string               `yaml:"method"` // custom|docker-compose|terraform|ansible|k8s
+	Config        DeployMethodConfig   `yaml:"config"`
+	Timeout       time.Duration        `yaml:"timeout"`
+	Rollback      RollbackConfig       `yaml:"rollback"`
+	Approval      DeployApprovalConfig `yaml:"approval"`
+	InfraFiles    []string             `yaml:"infra_files"`    // glob patterns for AI-modifiable infra files
+	InfraReadonly []string             `yaml:"infra_readonly"` // glob patterns AI can read but not modify
+}
+
+// DeployApprovalConfig controls whether AI-proposed infra changes require human approval.
+type DeployApprovalConfig struct {
+	Mode    string        `yaml:"mode"`    // manual (default) | auto | suggest-only
+	Timeout time.Duration `yaml:"timeout"` // how long to wait for approval (default 24h)
 }
 
 // DeployMethodConfig is a union of all deploy-method-specific fields.

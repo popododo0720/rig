@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,9 +15,10 @@ import (
 // --- Mock adapters ---
 
 type mockAI struct {
-	analyzeFunc  func(ctx context.Context, issue *AIIssue, projectCtx string) (*AIPlan, error)
-	generateFunc func(ctx context.Context, plan *AIPlan, repoFiles map[string]string) ([]AIFileChange, error)
-	failureFunc  func(ctx context.Context, logs string, currentCode map[string]string) ([]AIFileChange, error)
+	analyzeFunc       func(ctx context.Context, issue *AIIssue, projectCtx string) (*AIPlan, error)
+	generateFunc      func(ctx context.Context, plan *AIPlan, repoFiles map[string]string) ([]AIFileChange, error)
+	failureFunc       func(ctx context.Context, logs string, currentCode map[string]string) ([]AIFileChange, error)
+	deployFailureFunc func(ctx context.Context, deployLogs string, infraFiles map[string]string) (*AIProposedFix, error)
 }
 
 func (m *mockAI) AnalyzeIssue(ctx context.Context, issue *AIIssue, projectContext string) (*AIPlan, error) {
@@ -38,6 +40,19 @@ func (m *mockAI) AnalyzeFailure(ctx context.Context, logs string, currentCode ma
 		return m.failureFunc(ctx, logs, currentCode)
 	}
 	return []AIFileChange{{Path: "main.go", Content: "package main // fixed", Action: "modify"}}, nil
+}
+
+func (m *mockAI) AnalyzeDeployFailure(ctx context.Context, deployLogs string, infraFiles map[string]string) (*AIProposedFix, error) {
+	if m.deployFailureFunc != nil {
+		return m.deployFailureFunc(ctx, deployLogs, infraFiles)
+	}
+	return &AIProposedFix{
+		Summary: "deploy fix",
+		Reason:  "default deploy fix reason",
+		Changes: []AIProposedFile{
+			{Path: "deploy.yaml", Action: "modify", Reason: "fix config", Content: "apiVersion: v1"},
+		},
+	}, nil
 }
 
 type mockGit struct {
@@ -398,9 +413,23 @@ func TestEngine_DeployFailure(t *testing.T) {
 		t.Fatal("expected error when deploy fails")
 	}
 
+	// With the proposal system, deploy failure triggers AI analysis and
+	// transitions to awaiting_approval (default manual mode).
+	if !errors.Is(err, ErrAwaitingApproval) {
+		t.Fatalf("expected ErrAwaitingApproval, got: %v", err)
+	}
+
 	state, _ := LoadState(statePath)
-	if state.Tasks[0].Status != PhaseFailed {
-		t.Fatalf("expected failed status, got %s", state.Tasks[0].Status)
+	if state.Tasks[0].Status != PhaseAwaitingApproval {
+		t.Fatalf("expected awaiting_approval status, got %s", state.Tasks[0].Status)
+	}
+
+	// Should have a pending proposal.
+	if len(state.Tasks[0].Proposals) == 0 {
+		t.Fatal("expected at least one proposal")
+	}
+	if state.Tasks[0].Proposals[0].Status != ProposalPending {
+		t.Fatalf("expected pending proposal, got %s", state.Tasks[0].Proposals[0].Status)
 	}
 }
 

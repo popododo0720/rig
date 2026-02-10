@@ -29,11 +29,27 @@ type AIFileChange struct {
 	Action  string // "create", "modify", or "delete"
 }
 
+// AIProposedFix is the AI's structured response for deploy/infra failures.
+type AIProposedFix struct {
+	Summary string           `json:"summary"`
+	Reason  string           `json:"reason"`
+	Changes []AIProposedFile `json:"changes"`
+}
+
+// AIProposedFile is a single file change within a proposed fix.
+type AIProposedFile struct {
+	Path    string `json:"path"`
+	Action  string `json:"action"` // create | modify | delete
+	Reason  string `json:"reason"` // explanation for this specific change
+	Content string `json:"content"`
+}
+
 // AIAdapter defines the interface for AI-assisted code generation.
 type AIAdapter interface {
 	AnalyzeIssue(ctx context.Context, issue *AIIssue, projectContext string) (*AIPlan, error)
 	GenerateCode(ctx context.Context, plan *AIPlan, repoFiles map[string]string) ([]AIFileChange, error)
 	AnalyzeFailure(ctx context.Context, logs string, currentCode map[string]string) ([]AIFileChange, error)
+	AnalyzeDeployFailure(ctx context.Context, deployLogs string, infraFiles map[string]string) (*AIProposedFix, error)
 }
 
 // GitFileChange represents a file modification to be committed.
