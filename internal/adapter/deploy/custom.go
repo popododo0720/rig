@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -218,59 +220,68 @@ func (a *CustomAdapter) executeSSH(ctx context.Context, cmd config.CustomCommand
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
+	dialTimeout := 30 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return "", fmt.Errorf("ssh dial timed out: %w", ctx.Err())
+		}
+		dialTimeout = remaining
+	}
+	sshConfig.Timeout = dialTimeout
+
 	port := cmd.Transport.SSH.Port
 	if port == 0 {
 		port = defaultSSHPort
 	}
 
-	addr := fmt.Sprintf("%s:%d", cmd.Transport.SSH.Host, port)
+	addr := net.JoinHostPort(cmd.Transport.SSH.Host, strconv.Itoa(port))
 
-	// Use a channel to handle context cancellation during dial
-	type dialResult struct {
-		client *ssh.Client
-		err    error
+	conn, err := net.DialTimeout("tcp", addr, dialTimeout)
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("ssh dial timed out: %w", ctx.Err())
+		}
+		return "", fmt.Errorf("ssh dial: %w", err)
 	}
-	ch := make(chan dialResult, 1)
+
+	c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshConfig)
+	if err != nil {
+		_ = conn.Close()
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("ssh handshake timed out: %w", ctx.Err())
+		}
+		return "", fmt.Errorf("ssh handshake: %w", err)
+	}
+	client := ssh.NewClient(c, chans, reqs)
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("ssh session: %w", err)
+	}
+	defer session.Close()
+
+	var buf bytes.Buffer
+	session.Stdout = &buf
+	session.Stderr = &buf
+
+	// Run command with context cancellation.
+	done := make(chan error, 1)
 	go func() {
-		client, err := ssh.Dial("tcp", addr, sshConfig)
-		ch <- dialResult{client, err}
+		done <- session.Run(resolved)
 	}()
 
 	select {
 	case <-ctx.Done():
-		return "", fmt.Errorf("ssh dial timed out: %w", ctx.Err())
-	case res := <-ch:
-		if res.err != nil {
-			return "", fmt.Errorf("ssh dial: %w", res.err)
-		}
-		defer res.client.Close()
-
-		session, err := res.client.NewSession()
+		_ = session.Close()
+		<-done
+		return "", fmt.Errorf("command timed out: %w", ctx.Err())
+	case err := <-done:
 		if err != nil {
-			return "", fmt.Errorf("ssh session: %w", err)
+			return "", fmt.Errorf("ssh command failed: %w (output: %s)", err, buf.String())
 		}
-		defer session.Close()
-
-		var buf bytes.Buffer
-		session.Stdout = &buf
-		session.Stderr = &buf
-
-		// Run command with context cancellation
-		done := make(chan error, 1)
-		go func() {
-			done <- session.Run(resolved)
-		}()
-
-		select {
-		case <-ctx.Done():
-			_ = session.Signal(ssh.SIGTERM)
-			return "", fmt.Errorf("command timed out: %w", ctx.Err())
-		case err := <-done:
-			if err != nil {
-				return "", fmt.Errorf("ssh command failed: %w (output: %s)", err, buf.String())
-			}
-			return buf.String(), nil
-		}
+		return buf.String(), nil
 	}
 }
 

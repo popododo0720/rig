@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -134,6 +135,8 @@ type TestResult struct {
 // ErrInvalidTransition is returned when a state transition is not allowed.
 var ErrInvalidTransition = errors.New("invalid state transition")
 
+var stateMu sync.Mutex
+
 // Transition validates and applies a phase transition on a task.
 // Returns ErrInvalidTransition if the transition is not allowed.
 func Transition(task *Task, to TaskPhase) error {
@@ -163,6 +166,9 @@ func Transition(task *Task, to TaskPhase) error {
 // LoadState reads state from the given JSON file path.
 // If the file does not exist, it returns a fresh State with version "1.0".
 func LoadState(path string) (*State, error) {
+	stateMu.Lock()
+	defer stateMu.Unlock()
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -180,6 +186,9 @@ func LoadState(path string) (*State, error) {
 
 // SaveState writes state to the given path using atomic write (tmp + rename).
 func SaveState(s *State, path string) error {
+	stateMu.Lock()
+	defer stateMu.Unlock()
+
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)

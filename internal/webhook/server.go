@@ -44,8 +44,11 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	}
 
 	s.srv = &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: r,
+		Addr:         fmt.Sprintf(":%d", port),
+		Handler:      r,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	// Set up signal-based graceful shutdown.

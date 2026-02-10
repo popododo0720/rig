@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,8 @@ import (
 	"github.com/google/go-github/v60/github"
 	"github.com/rigdev/rig/internal/core"
 )
+
+const defaultGitHubHTTPTimeout = 30 * time.Second
 
 // GitHubAdapter implements GitAdapter using the GitHub REST API and local git CLI.
 type GitHubAdapter struct {
@@ -36,11 +39,12 @@ var _ WebhookGitAdapter = (*GitHubAdapter)(nil)
 // NewGitHub creates a new GitHubAdapter.
 // baseURL can be empty for github.com or a custom URL for GitHub Enterprise.
 func NewGitHub(owner, repo, token, secret, baseURL string) (*GitHub, error) {
-	client := github.NewClient(nil).WithAuthToken(token)
+	httpClient := &http.Client{Timeout: defaultGitHubHTTPTimeout}
+	client := github.NewClient(httpClient).WithAuthToken(token)
 
 	if baseURL != "" {
 		var err error
-		client, err = github.NewClient(nil).WithAuthToken(token).WithEnterpriseURLs(baseURL, baseURL)
+		client, err = github.NewClient(httpClient).WithAuthToken(token).WithEnterpriseURLs(baseURL, baseURL)
 		if err != nil {
 			return nil, fmt.Errorf("create github enterprise client: %w", err)
 		}

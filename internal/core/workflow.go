@@ -198,6 +198,12 @@ func stepRollback(ctx context.Context, deployAdapter DeployAdapterIface) error {
 func buildPRBody(attempt *Attempt) string {
 	var b strings.Builder
 	b.WriteString("## Automated Fix by Rig\n\n")
+
+	if attempt == nil {
+		b.WriteString("_No attempt details available._\n")
+		return b.String()
+	}
+
 	b.WriteString(fmt.Sprintf("**Plan:** %s\n\n", attempt.Plan))
 
 	if len(attempt.FilesChanged) > 0 {
