@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/rigdev/rig/internal/config"
+	"github.com/rigdev/rig/internal/core"
 	"github.com/rigdev/rig/internal/variable"
 	"golang.org/x/crypto/ssh"
 )
@@ -20,11 +22,13 @@ const (
 	defaultSSHPort = 22
 )
 
-// CustomAdapter implements DeployAdapter using custom shell commands.
+// CustomAdapter implements core.DeployAdapterIface using custom shell commands.
 type CustomAdapter struct {
 	commands []config.CustomCommand
 	rollback []config.CustomCommand
 }
+
+var _ core.DeployAdapterIface = (*CustomAdapter)(nil)
 
 // NewCustom creates a new CustomAdapter from deploy and rollback configs.
 func NewCustom(cfg config.DeployMethodConfig, rollbackCfg config.DeployMethodConfig) (*CustomAdapter, error) {
@@ -66,14 +70,14 @@ func validateSSH(cfg config.SSHConfig) error {
 	if cfg.User == "" {
 		return fmt.Errorf("user is required")
 	}
-	if cfg.Key == "" {
-		return fmt.Errorf("key is required")
+	if cfg.Key == "" && cfg.Password == "" {
+		return fmt.Errorf("key or password is required")
 	}
 	return nil
 }
 
 // Deploy executes all commands sequentially with variable resolution.
-func (a *CustomAdapter) Deploy(ctx context.Context, vars map[string]string) (*Result, error) {
+func (a *CustomAdapter) Deploy(ctx context.Context, vars map[string]string) (*core.AdapterDeployResult, error) {
 	return a.runCommands(ctx, a.commands, vars)
 }
 
@@ -95,7 +99,7 @@ func (a *CustomAdapter) Status(ctx context.Context) (*Status, error) {
 }
 
 // runCommands executes a list of commands sequentially with retry logic.
-func (a *CustomAdapter) runCommands(ctx context.Context, cmds []config.CustomCommand, vars map[string]string) (*Result, error) {
+func (a *CustomAdapter) runCommands(ctx context.Context, cmds []config.CustomCommand, vars map[string]string) (*core.AdapterDeployResult, error) {
 	start := time.Now()
 	var allOutput strings.Builder
 
@@ -131,7 +135,7 @@ func (a *CustomAdapter) runCommands(ctx context.Context, cmds []config.CustomCom
 		}
 
 		if lastErr != nil {
-			return &Result{
+			return &core.AdapterDeployResult{
 				Success:  false,
 				Output:   fmt.Sprintf("failed at command %d (%s): %s", i+1, cmd.Name, lastErr.Error()),
 				Duration: time.Since(start),
@@ -139,7 +143,7 @@ func (a *CustomAdapter) runCommands(ctx context.Context, cmds []config.CustomCom
 		}
 	}
 
-	return &Result{
+	return &core.AdapterDeployResult{
 		Success:  true,
 		Output:   allOutput.String(),
 		Duration: time.Since(start),
@@ -180,19 +184,37 @@ func (a *CustomAdapter) executeLocal(ctx context.Context, cmd config.CustomComma
 
 // executeSSH runs a command on a remote machine over SSH.
 func (a *CustomAdapter) executeSSH(ctx context.Context, cmd config.CustomCommand, resolved string) (string, error) {
-	keyBytes, err := os.ReadFile(cmd.Transport.SSH.Key)
-	if err != nil {
-		return "", fmt.Errorf("read ssh key: %w", err)
+	authMethods := make([]ssh.AuthMethod, 0, 2)
+
+	if cmd.Transport.SSH.Key != "" {
+		keyPath, err := resolveSSHKeyPath(cmd.Transport.SSH.Key)
+		if err != nil {
+			return "", fmt.Errorf("resolve ssh key path: %w", err)
+		}
+
+		keyBytes, err := os.ReadFile(keyPath)
+		if err != nil {
+			return "", fmt.Errorf("read ssh key: %w", err)
+		}
+
+		signer, parseErr := ssh.ParsePrivateKey(keyBytes)
+		if parseErr != nil {
+			return "", fmt.Errorf("parse ssh key: %w", parseErr)
+		}
+		authMethods = append(authMethods, ssh.PublicKeys(signer))
 	}
 
-	signer, err := ssh.ParsePrivateKey(keyBytes)
-	if err != nil {
-		return "", fmt.Errorf("parse ssh key: %w", err)
+	if cmd.Transport.SSH.Password != "" {
+		authMethods = append(authMethods, ssh.Password(cmd.Transport.SSH.Password))
+	}
+
+	if len(authMethods) == 0 {
+		return "", fmt.Errorf("ssh auth requires key or password")
 	}
 
 	sshConfig := &ssh.ClientConfig{
 		User:            cmd.Transport.SSH.User,
-		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		Auth:            authMethods,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
@@ -250,4 +272,25 @@ func (a *CustomAdapter) executeSSH(ctx context.Context, cmd config.CustomCommand
 			return buf.String(), nil
 		}
 	}
+}
+
+func resolveSSHKeyPath(path string) (string, error) {
+	if path == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("get user home dir: %w", err)
+		}
+		return home, nil
+	}
+
+	if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~\\") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("get user home dir: %w", err)
+		}
+		rest := path[2:]
+		return filepath.Join(home, rest), nil
+	}
+
+	return path, nil
 }

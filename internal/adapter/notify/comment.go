@@ -4,19 +4,26 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/rigdev/rig/internal/adapter/git"
+	"github.com/rigdev/rig/internal/core"
 )
+
+// CommentPoster is the minimal dependency needed by CommentNotifier.
+type CommentPoster interface {
+	PostComment(ctx context.Context, owner, repo string, number int, body string) error
+}
 
 // CommentNotifier sends notifications as issue comments via GitAdapter.
 type CommentNotifier struct {
-	adapter git.GitAdapter
+	adapter CommentPoster
 	owner   string
 	repo    string
 	number  int
 }
 
+var _ core.NotifierIface = (*CommentNotifier)(nil)
+
 // NewCommentNotifier creates a new CommentNotifier.
-func NewCommentNotifier(adapter git.GitAdapter, owner, repo string, number int) *CommentNotifier {
+func NewCommentNotifier(adapter CommentPoster, owner, repo string, number int) *CommentNotifier {
 	return &CommentNotifier{
 		adapter: adapter,
 		owner:   owner,

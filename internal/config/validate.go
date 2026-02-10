@@ -149,8 +149,8 @@ func validateCustomCommand(idx int, cmd *CustomCommand) []string {
 		if cmd.Transport.SSH.User == "" {
 			errs = append(errs, sshPrefix+".user is required when transport type is 'ssh'")
 		}
-		if cmd.Transport.SSH.Key == "" {
-			errs = append(errs, sshPrefix+".key is required when transport type is 'ssh'")
+		if cmd.Transport.SSH.Key == "" && cmd.Transport.SSH.Password == "" {
+			errs = append(errs, sshPrefix+".key or "+sshPrefix+".password is required when transport type is 'ssh'")
 		}
 	}
 

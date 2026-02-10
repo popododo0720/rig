@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/rigdev/rig/internal/config"
+	"github.com/rigdev/rig/internal/core"
 )
 
 // fakeAnthropicServer creates a test server that returns the given response body
@@ -98,7 +99,7 @@ func TestAnalyzeIssue(t *testing.T) {
 
 	adapter := newTestAdapter(t, server.URL)
 
-	plan, err := adapter.AnalyzeIssue(context.Background(), &Issue{
+	plan, err := adapter.AnalyzeIssue(context.Background(), &core.AIIssue{
 		Title: "Add authentication",
 		Body:  "We need user login and JWT tokens.",
 	}, "Go web application project")
@@ -137,7 +138,7 @@ func TestGenerateCode(t *testing.T) {
 
 	adapter := newTestAdapter(t, server.URL)
 
-	changes, err := adapter.GenerateCode(context.Background(), &Plan{
+	changes, err := adapter.GenerateCode(context.Background(), &core.AIPlan{
 		Summary: "Add authentication",
 		Steps:   []string{"Create handler", "Create middleware"},
 	}, map[string]string{
@@ -205,7 +206,7 @@ func TestRateLimit(t *testing.T) {
 
 	adapter := newTestAdapter(t, server.URL)
 
-	_, err := adapter.AnalyzeIssue(context.Background(), &Issue{
+	_, err := adapter.AnalyzeIssue(context.Background(), &core.AIIssue{
 		Title: "Test",
 		Body:  "Test body",
 	}, "")
@@ -224,7 +225,7 @@ func TestAPIError(t *testing.T) {
 
 	adapter := newTestAdapter(t, server.URL)
 
-	_, err := adapter.AnalyzeIssue(context.Background(), &Issue{
+	_, err := adapter.AnalyzeIssue(context.Background(), &core.AIIssue{
 		Title: "Test",
 		Body:  "Test body",
 	}, "")
@@ -244,7 +245,7 @@ func TestEmptyResponse(t *testing.T) {
 
 	adapter := newTestAdapter(t, server.URL)
 
-	_, err := adapter.AnalyzeIssue(context.Background(), &Issue{
+	_, err := adapter.AnalyzeIssue(context.Background(), &core.AIIssue{
 		Title: "Test",
 		Body:  "Test body",
 	}, "")
@@ -264,7 +265,7 @@ func TestEmptyResponseNoTextBlock(t *testing.T) {
 
 	adapter := newTestAdapter(t, server.URL)
 
-	_, err := adapter.AnalyzeIssue(context.Background(), &Issue{
+	_, err := adapter.AnalyzeIssue(context.Background(), &core.AIIssue{
 		Title: "Test",
 		Body:  "Test body",
 	}, "")
@@ -284,7 +285,7 @@ func TestMalformedJSONResponse(t *testing.T) {
 
 	adapter := newTestAdapter(t, server.URL)
 
-	_, err := adapter.AnalyzeIssue(context.Background(), &Issue{
+	_, err := adapter.AnalyzeIssue(context.Background(), &core.AIIssue{
 		Title: "Test",
 		Body:  "Test body",
 	}, "")
@@ -307,7 +308,7 @@ func TestResponseWithMarkdownFences(t *testing.T) {
 
 	adapter := newTestAdapter(t, server.URL)
 
-	plan, err := adapter.AnalyzeIssue(context.Background(), &Issue{
+	plan, err := adapter.AnalyzeIssue(context.Background(), &core.AIIssue{
 		Title: "Bug fix",
 		Body:  "Fix the thing",
 	}, "")
@@ -332,7 +333,7 @@ func TestFileChangeMissingPath(t *testing.T) {
 
 	adapter := newTestAdapter(t, server.URL)
 
-	_, err := adapter.GenerateCode(context.Background(), &Plan{
+	_, err := adapter.GenerateCode(context.Background(), &core.AIPlan{
 		Summary: "Test",
 		Steps:   []string{"Step 1"},
 	}, nil)
@@ -354,7 +355,7 @@ func TestFileChangeMissingAction(t *testing.T) {
 
 	adapter := newTestAdapter(t, server.URL)
 
-	_, err := adapter.GenerateCode(context.Background(), &Plan{
+	_, err := adapter.GenerateCode(context.Background(), &core.AIPlan{
 		Summary: "Test",
 		Steps:   []string{"Step 1"},
 	}, nil)
@@ -376,7 +377,7 @@ func TestEmptyPlanSummary(t *testing.T) {
 
 	adapter := newTestAdapter(t, server.URL)
 
-	_, err := adapter.AnalyzeIssue(context.Background(), &Issue{
+	_, err := adapter.AnalyzeIssue(context.Background(), &core.AIIssue{
 		Title: "Test",
 		Body:  "Test body",
 	}, "")
@@ -401,7 +402,7 @@ func TestContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately.
 
-	_, err := adapter.AnalyzeIssue(ctx, &Issue{
+	_, err := adapter.AnalyzeIssue(ctx, &core.AIIssue{
 		Title: "Test",
 		Body:  "Test body",
 	}, "")
@@ -427,7 +428,7 @@ func TestRequestHeaders(t *testing.T) {
 
 	adapter := newTestAdapter(t, server.URL)
 
-	_, err := adapter.AnalyzeIssue(context.Background(), &Issue{
+	_, err := adapter.AnalyzeIssue(context.Background(), &core.AIIssue{
 		Title: "Test",
 		Body:  "Test body",
 	}, "project context")

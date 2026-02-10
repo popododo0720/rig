@@ -90,10 +90,11 @@ type TransportConfig struct {
 
 // SSHConfig holds SSH connection details.
 type SSHConfig struct {
-	Host string `yaml:"host"`
-	Port int    `yaml:"port"`
-	User string `yaml:"user"`
-	Key  string `yaml:"key"`
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	User     string `yaml:"user"`
+	Key      string `yaml:"key"`
+	Password string `yaml:"password"`
 }
 
 // RollbackConfig holds rollback settings.

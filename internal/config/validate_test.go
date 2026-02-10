@@ -238,7 +238,7 @@ func TestValidateCustomCommands(t *testing.T) {
 			wantErr: "user is required",
 		},
 		{
-			name: "ssh transport missing key",
+			name: "ssh transport missing auth",
 			cfg: func() Config {
 				c := base()
 				c.Deploy = DeployConfig{
@@ -256,7 +256,7 @@ func TestValidateCustomCommands(t *testing.T) {
 				}
 				return c
 			}(),
-			wantErr: "key is required",
+			wantErr: "key or",
 		},
 		{
 			name: "retry out of range",
@@ -437,6 +437,35 @@ func TestValidateValidConfig(t *testing.T) {
 
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("expected no error for valid config, got: %v", err)
+	}
+}
+
+func TestValidateSSHPasswordOnly(t *testing.T) {
+	cfg := &Config{
+		Project: ProjectConfig{Name: "test"},
+		Source:  SourceConfig{Platform: "github", Repo: "a/b"},
+		AI:      AIConfig{Provider: "openai", Model: "gpt-4", MaxRetry: 3},
+		Deploy: DeployConfig{
+			Method: "custom",
+			Config: DeployMethodConfig{
+				Commands: []CustomCommand{{
+					Name: "deploy",
+					Run:  "echo deploy",
+					Transport: TransportConfig{
+						Type: "ssh",
+						SSH: SSHConfig{
+							Host:     "example.com",
+							User:     "deploy",
+							Password: "secret",
+						},
+					},
+				}},
+			},
+		},
+	}
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("expected password-only ssh config to validate, got: %v", err)
 	}
 }
 

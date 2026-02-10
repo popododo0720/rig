@@ -17,6 +17,8 @@ type CommandRunner struct {
 	cfg config.TestConfig
 }
 
+var _ core.TestRunnerIface = (*CommandRunner)(nil)
+
 // NewCommandRunner creates a CommandRunner from a test configuration.
 func NewCommandRunner(cfg config.TestConfig) *CommandRunner {
 	return &CommandRunner{cfg: cfg}

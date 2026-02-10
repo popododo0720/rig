@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/rigdev/rig/internal/config"
+	"github.com/rigdev/rig/internal/core"
 )
 
 const (
@@ -27,6 +28,8 @@ type AnthropicAdapter struct {
 	endpoint string
 	client   *http.Client
 }
+
+var _ core.AIAdapter = (*AnthropicAdapter)(nil)
 
 // NewAnthropic creates a new AnthropicAdapter from the AI config.
 func NewAnthropic(cfg config.AIConfig) (*AnthropicAdapter, error) {
@@ -46,7 +49,7 @@ func NewAnthropic(cfg config.AIConfig) (*AnthropicAdapter, error) {
 }
 
 // AnalyzeIssue sends the issue to Anthropic and parses a Plan from the response.
-func (a *AnthropicAdapter) AnalyzeIssue(ctx context.Context, issue *Issue, projectContext string) (*Plan, error) {
+func (a *AnthropicAdapter) AnalyzeIssue(ctx context.Context, issue *core.AIIssue, projectContext string) (*core.AIPlan, error) {
 	if issue == nil {
 		return nil, fmt.Errorf("anthropic: issue is nil")
 	}
@@ -76,7 +79,7 @@ Respond in the following JSON format ONLY (no markdown fences, no extra text):
 }
 
 // GenerateCode sends the plan and repo files to Anthropic and parses FileChange list.
-func (a *AnthropicAdapter) GenerateCode(ctx context.Context, plan *Plan, repoFiles map[string]string) ([]FileChange, error) {
+func (a *AnthropicAdapter) GenerateCode(ctx context.Context, plan *core.AIPlan, repoFiles map[string]string) ([]core.AIFileChange, error) {
 	if plan == nil {
 		return nil, fmt.Errorf("anthropic: plan is nil")
 	}
@@ -116,7 +119,7 @@ Respond in the following JSON format ONLY (no markdown fences, no extra text):
 }
 
 // AnalyzeFailure sends test/build logs and current code to Anthropic for fix suggestions.
-func (a *AnthropicAdapter) AnalyzeFailure(ctx context.Context, logs string, currentCode map[string]string) ([]FileChange, error) {
+func (a *AnthropicAdapter) AnalyzeFailure(ctx context.Context, logs string, currentCode map[string]string) ([]core.AIFileChange, error) {
 	systemPrompt := "You are a debugging assistant. Analyze test/build failure logs and suggest code fixes. Output valid JSON only."
 
 	var codeSection strings.Builder
@@ -269,13 +272,13 @@ func formatSteps(steps []string) string {
 }
 
 // parsePlan extracts a Plan from a JSON string, handling optional markdown fences.
-func parsePlan(raw string) (*Plan, error) {
+func parsePlan(raw string) (*core.AIPlan, error) {
 	cleaned := cleanJSON(raw)
 	if cleaned == "" {
 		return nil, fmt.Errorf("empty plan response")
 	}
 
-	var plan Plan
+	var plan core.AIPlan
 	if err := json.Unmarshal([]byte(cleaned), &plan); err != nil {
 		return nil, fmt.Errorf("parse plan: %w (raw: %.200s)", err, raw)
 	}
@@ -288,13 +291,13 @@ func parsePlan(raw string) (*Plan, error) {
 }
 
 // parseFileChanges extracts a FileChange slice from a JSON string.
-func parseFileChanges(raw string) ([]FileChange, error) {
+func parseFileChanges(raw string) ([]core.AIFileChange, error) {
 	cleaned := cleanJSON(raw)
 	if cleaned == "" {
 		return nil, fmt.Errorf("empty file changes response")
 	}
 
-	var changes []FileChange
+	var changes []core.AIFileChange
 	if err := json.Unmarshal([]byte(cleaned), &changes); err != nil {
 		return nil, fmt.Errorf("parse file changes: %w (raw: %.200s)", err, raw)
 	}

@@ -1,31 +1,9 @@
 package deploy
 
-import (
-	"context"
-	"time"
-)
+import "github.com/rigdev/rig/internal/core"
 
-// DeployAdapter defines the interface for deploy operations.
-type DeployAdapter interface {
-	// Validate checks that the adapter configuration is valid.
-	Validate() error
-
-	// Deploy executes the deployment with the given variable map.
-	Deploy(ctx context.Context, vars map[string]string) (*Result, error)
-
-	// Rollback reverses a deployment.
-	Rollback(ctx context.Context) error
-
-	// Status returns the current deployment status.
-	Status(ctx context.Context) (*Status, error)
-}
-
-// Result holds the outcome of a deploy or rollback operation.
-type Result struct {
-	Success  bool
-	Output   string
-	Duration time.Duration
-}
+// Compatibility alias for the canonical core deploy result type.
+type Result = core.AdapterDeployResult
 
 // Status holds the current deployment status.
 type Status struct {

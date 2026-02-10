@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/go-github/v60/github"
+	"github.com/rigdev/rig/internal/core"
 )
 
 // GitHubAdapter implements GitAdapter using the GitHub REST API and local git CLI.
@@ -26,9 +27,15 @@ type GitHubAdapter struct {
 	workspace string // local workspace path
 }
 
+// GitHub is the concrete adapter used by CLI wiring.
+type GitHub = GitHubAdapter
+
+var _ core.GitAdapter = (*GitHubAdapter)(nil)
+var _ WebhookGitAdapter = (*GitHubAdapter)(nil)
+
 // NewGitHub creates a new GitHubAdapter.
 // baseURL can be empty for github.com or a custom URL for GitHub Enterprise.
-func NewGitHub(owner, repo, token, secret, baseURL string) (*GitHubAdapter, error) {
+func NewGitHub(owner, repo, token, secret, baseURL string) (*GitHub, error) {
 	client := github.NewClient(nil).WithAuthToken(token)
 
 	if baseURL != "" {
@@ -175,12 +182,12 @@ func (g *GitHubAdapter) CreateBranch(ctx context.Context, branchName string) err
 }
 
 // CommitAndPush stages file changes, commits, and pushes to the remote.
-func (g *GitHubAdapter) CommitAndPush(ctx context.Context, changes []FileChange, message string) error {
+func (g *GitHubAdapter) CommitAndPush(ctx context.Context, changes []core.GitFileChange, message string) error {
 	for _, change := range changes {
 		absPath := filepath.Join(g.workspace, change.Path)
 
 		switch change.Action {
-		case "create", "update":
+		case "create", "update", "modify":
 			dir := filepath.Dir(absPath)
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return fmt.Errorf("create directory for %q: %w", change.Path, err)
@@ -212,7 +219,7 @@ func (g *GitHubAdapter) CommitAndPush(ctx context.Context, changes []FileChange,
 }
 
 // CreatePR creates a pull request on the remote repository.
-func (g *GitHubAdapter) CreatePR(ctx context.Context, base, head, title, body string) (*PullRequest, error) {
+func (g *GitHubAdapter) CreatePR(ctx context.Context, base, head, title, body string) (*core.GitPullRequest, error) {
 	pr := &github.NewPullRequest{
 		Title: github.String(title),
 		Body:  github.String(body),
@@ -225,7 +232,7 @@ func (g *GitHubAdapter) CreatePR(ctx context.Context, base, head, title, body st
 		return nil, fmt.Errorf("create pull request: %w", err)
 	}
 
-	return &PullRequest{
+	return &core.GitPullRequest{
 		Number: created.GetNumber(),
 		URL:    created.GetHTMLURL(),
 		Title:  created.GetTitle(),

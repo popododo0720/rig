@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"testing"
-
-	"github.com/rigdev/rig/internal/adapter/git"
 )
 
-// mockGitAdapter is a test double implementing git.GitAdapter.
+// mockGitAdapter is a test double for CommentPoster.
 type mockGitAdapter struct {
 	postCommentCalls []postCommentCall
 	postCommentErr   error
@@ -21,12 +19,6 @@ type postCommentCall struct {
 	body   string
 }
 
-func (m *mockGitAdapter) ParseWebhook(body []byte, signature string) (*git.Issue, error) {
-	return nil, nil
-}
-func (m *mockGitAdapter) GetIssue(ctx context.Context, owner, repo string, number int) (*git.Issue, error) {
-	return nil, nil
-}
 func (m *mockGitAdapter) PostComment(ctx context.Context, owner, repo string, number int, body string) error {
 	m.postCommentCalls = append(m.postCommentCalls, postCommentCall{
 		owner:  owner,
@@ -35,18 +27,6 @@ func (m *mockGitAdapter) PostComment(ctx context.Context, owner, repo string, nu
 		body:   body,
 	})
 	return m.postCommentErr
-}
-func (m *mockGitAdapter) CreateBranch(ctx context.Context, branchName string) error {
-	return nil
-}
-func (m *mockGitAdapter) CommitAndPush(ctx context.Context, changes []git.FileChange, message string) error {
-	return nil
-}
-func (m *mockGitAdapter) CreatePR(ctx context.Context, base, head, title, body string) (*git.PullRequest, error) {
-	return nil, nil
-}
-func (m *mockGitAdapter) CloneOrPull(ctx context.Context, owner, repo, token string) error {
-	return nil
 }
 
 func TestCommentNotifySuccess(t *testing.T) {

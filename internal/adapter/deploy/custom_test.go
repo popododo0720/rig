@@ -3,6 +3,7 @@ package deploy
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -197,9 +198,9 @@ func TestCustomSSHValidate(t *testing.T) {
 			wantErr: "user is required",
 		},
 		{
-			name:    "missing key",
+			name:    "missing auth",
 			ssh:     config.SSHConfig{Host: "example.com", User: "root"},
-			wantErr: "key is required",
+			wantErr: "key or password is required",
 		},
 	}
 
@@ -226,6 +227,29 @@ func TestCustomSSHValidate(t *testing.T) {
 				t.Errorf("Expected error containing %q, got: %v", tt.wantErr, err)
 			}
 		})
+	}
+}
+
+func TestCustomSSHValidatePasswordOnly(t *testing.T) {
+	adapter := &CustomAdapter{
+		commands: []config.CustomCommand{
+			{
+				Name: "ssh-cmd",
+				Run:  "echo hello",
+				Transport: config.TransportConfig{
+					Type: "ssh",
+					SSH: config.SSHConfig{
+						Host:     "example.com",
+						User:     "root",
+						Password: "secret",
+					},
+				},
+			},
+		},
+	}
+
+	if err := adapter.Validate(); err != nil {
+		t.Fatalf("expected password-only SSH config to validate, got: %v", err)
 	}
 }
 
@@ -391,5 +415,33 @@ func TestCustomStatus(t *testing.T) {
 	}
 	if status.Running {
 		t.Error("Expected not running")
+	}
+}
+
+func TestResolveSSHKeyPathHomeAlias(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("failed to get user home dir: %v", err)
+	}
+
+	resolved, err := resolveSSHKeyPath("~/.ssh/rig_test")
+	if err != nil {
+		t.Fatalf("resolveSSHKeyPath failed: %v", err)
+	}
+
+	expected := filepath.Join(home, ".ssh", "rig_test")
+	if resolved != expected {
+		t.Fatalf("resolved path = %q, want %q", resolved, expected)
+	}
+}
+
+func TestResolveSSHKeyPathPassthrough(t *testing.T) {
+	input := "/tmp/id_rsa"
+	resolved, err := resolveSSHKeyPath(input)
+	if err != nil {
+		t.Fatalf("resolveSSHKeyPath failed: %v", err)
+	}
+	if resolved != input {
+		t.Fatalf("resolved path = %q, want %q", resolved, input)
 	}
 }

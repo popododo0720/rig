@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/rigdev/rig/internal/config"
 	"github.com/rigdev/rig/internal/core"
@@ -33,11 +34,19 @@ var runCmd = &cobra.Command{
 		handler := webhook.NewHandler(
 			cfg.Server.Secret,
 			cfg.Workflow.Trigger,
-			".rig/state.json",
+			defaultStatePath,
 			func(issue core.Issue) error {
-				// In production, this would create a real engine and execute.
-				fmt.Printf("Received issue: %s (%s)\n", issue.ID, issue.Title)
-				return nil
+				issueNumber, err := strconv.Atoi(issue.ID)
+				if err != nil {
+					return fmt.Errorf("invalid issue ID %q: %w", issue.ID, err)
+				}
+
+				engine, err := buildEngineForIssue(cfg, defaultStatePath, issueNumber)
+				if err != nil {
+					return err
+				}
+
+				return engine.Execute(cmd.Context(), issue)
 			},
 		)
 

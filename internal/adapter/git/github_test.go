@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/go-github/v60/github"
+	"github.com/rigdev/rig/internal/core"
 )
 
 // newTestGitHub creates a GitHubAdapter with a custom HTTP client backed by httptest.
@@ -489,7 +490,7 @@ func TestGitLocalCommitAndPush(t *testing.T) {
 	}
 
 	// Commit and push file changes
-	changes := []FileChange{
+	changes := []core.GitFileChange{
 		{Path: "src/main.go", Content: "package main\n\nfunc main() {}\n", Action: "create"},
 		{Path: "docs/README.md", Content: "# Docs\n", Action: "create"},
 	}
@@ -538,7 +539,7 @@ func TestGitLocalCommitAndPushDelete(t *testing.T) {
 	}
 
 	// First create a file
-	changes := []FileChange{
+	changes := []core.GitFileChange{
 		{Path: "to-delete.txt", Content: "temporary content", Action: "create"},
 	}
 	err = adapter.CommitAndPush(context.Background(), changes, "add file to delete")
@@ -547,7 +548,7 @@ func TestGitLocalCommitAndPushDelete(t *testing.T) {
 	}
 
 	// Now delete it
-	deleteChanges := []FileChange{
+	deleteChanges := []core.GitFileChange{
 		{Path: "to-delete.txt", Action: "delete"},
 	}
 	err = adapter.CommitAndPush(context.Background(), deleteChanges, "delete file")
@@ -572,7 +573,7 @@ func TestGitLocalCommitAndPushInvalidAction(t *testing.T) {
 		t.Fatalf("CreateBranch failed: %v", err)
 	}
 
-	changes := []FileChange{
+	changes := []core.GitFileChange{
 		{Path: "test.txt", Content: "data", Action: "unknown"},
 	}
 	err = adapter.CommitAndPush(context.Background(), changes, "bad action")
@@ -691,7 +692,7 @@ func TestNewGitHubEnterprise(t *testing.T) {
 
 // --- Verify interface compliance ---
 
-var _ GitAdapter = (*GitHubAdapter)(nil)
+var _ core.GitAdapter = (*GitHubAdapter)(nil)
 
 // --- Verify verifySignature directly ---
 
