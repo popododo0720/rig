@@ -406,18 +406,6 @@ func TestCustomNewCustom(t *testing.T) {
 	}
 }
 
-func TestCustomStatus(t *testing.T) {
-	adapter := &CustomAdapter{}
-
-	status, err := adapter.Status(context.Background())
-	if err != nil {
-		t.Fatalf("Status failed: %v", err)
-	}
-	if status.Running {
-		t.Error("Expected not running")
-	}
-}
-
 func TestResolveSSHKeyPathHomeAlias(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {

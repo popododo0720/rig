@@ -14,13 +14,11 @@ func retryLoop(
 	ctx context.Context,
 	e *Engine,
 	task *Task,
-	attempt *Attempt,
 	vars map[string]string,
 	testResults []TestResult,
 	changes []AIFileChange,
 	maxRetry int,
 ) error {
-	_ = attempt
 	retryCount := 0
 
 	for {

@@ -334,6 +334,7 @@ func sendSSEEvent(w http.ResponseWriter, flusher http.Flusher, event string, dat
 		log.Printf("web: SSE marshal error: %v", err)
 		return
 	}
+	// SSE clients may disconnect between frames; write errors are expected and safely ignored.
 	_, _ = w.Write([]byte("event: " + event + "\ndata: "))
 	_, _ = w.Write(payload)
 	_, _ = w.Write([]byte("\n\n"))
@@ -341,7 +342,11 @@ func sendSSEEvent(w http.ResponseWriter, flusher http.Flusher, event string, dat
 }
 
 func marshalTasks(tasks []core.Task) string {
-	data, _ := json.Marshal(tasks)
+	data, err := json.Marshal(tasks)
+	if err != nil {
+		log.Printf("web: tasks marshal error: %v", err)
+		return ""
+	}
 	return string(data)
 }
 

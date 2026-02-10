@@ -49,9 +49,9 @@ func TestRetryLoop_ImmediateSuccess(t *testing.T) {
 	deployMock := &mockDeploy{deploySuccess: true}
 	testRunner := &mockTestRunner{results: []*TestResult{{Name: "unit-test", Type: "command", Passed: true, Output: "PASS"}}}
 
-	engine, task, attempt, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
+	engine, task, _, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
 
-	err := retryLoop(context.Background(), engine, task, &attempt, vars, initialResults, initialChanges, 3)
+	err := retryLoop(context.Background(), engine, task, vars, initialResults, initialChanges, 3)
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
@@ -86,9 +86,9 @@ func TestRetryLoop_SuccessAfterMultipleRetries(t *testing.T) {
 		},
 	}
 
-	engine, task, attempt, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
+	engine, task, _, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
 
-	err := retryLoop(context.Background(), engine, task, &attempt, vars, initialResults, initialChanges, 3)
+	err := retryLoop(context.Background(), engine, task, vars, initialResults, initialChanges, 3)
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
@@ -112,9 +112,9 @@ func TestRetryLoop_MaxRetryExceeded(t *testing.T) {
 		},
 	}
 
-	engine, task, attempt, vars, initialResults, initialChanges := newRetryTestHarness(t, 2, aiMock, gitMock, deployMock, testRunner)
+	engine, task, _, vars, initialResults, initialChanges := newRetryTestHarness(t, 2, aiMock, gitMock, deployMock, testRunner)
 
-	err := retryLoop(context.Background(), engine, task, &attempt, vars, initialResults, initialChanges, 2)
+	err := retryLoop(context.Background(), engine, task, vars, initialResults, initialChanges, 2)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -138,9 +138,9 @@ func TestRetryLoop_MaxRetryZero(t *testing.T) {
 	deployMock := &mockDeploy{deploySuccess: true}
 	testRunner := &mockTestRunner{results: []*TestResult{{Name: "unit-test", Type: "command", Passed: true, Output: "PASS"}}}
 
-	engine, task, attempt, vars, initialResults, initialChanges := newRetryTestHarness(t, 0, aiMock, gitMock, deployMock, testRunner)
+	engine, task, _, vars, initialResults, initialChanges := newRetryTestHarness(t, 0, aiMock, gitMock, deployMock, testRunner)
 
-	err := retryLoop(context.Background(), engine, task, &attempt, vars, initialResults, initialChanges, 0)
+	err := retryLoop(context.Background(), engine, task, vars, initialResults, initialChanges, 0)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -165,9 +165,9 @@ func TestRetryLoop_AnalyzeFailureError(t *testing.T) {
 	deployMock := &mockDeploy{deploySuccess: true}
 	testRunner := &mockTestRunner{results: []*TestResult{{Name: "unit-test", Type: "command", Passed: true, Output: "PASS"}}}
 
-	engine, task, attempt, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
+	engine, task, _, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
 
-	err := retryLoop(context.Background(), engine, task, &attempt, vars, initialResults, initialChanges, 3)
+	err := retryLoop(context.Background(), engine, task, vars, initialResults, initialChanges, 3)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -185,9 +185,9 @@ func TestRetryLoop_CommitError(t *testing.T) {
 	deployMock := &mockDeploy{deploySuccess: true}
 	testRunner := &mockTestRunner{results: []*TestResult{{Name: "unit-test", Type: "command", Passed: true, Output: "PASS"}}}
 
-	engine, task, attempt, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
+	engine, task, _, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
 
-	err := retryLoop(context.Background(), engine, task, &attempt, vars, initialResults, initialChanges, 3)
+	err := retryLoop(context.Background(), engine, task, vars, initialResults, initialChanges, 3)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -212,9 +212,9 @@ func TestRetryLoop_DeployError(t *testing.T) {
 	deployMock := &mockDeploy{deployErr: errors.New("deploy adapter error")}
 	testRunner := &mockTestRunner{results: []*TestResult{{Name: "unit-test", Type: "command", Passed: true, Output: "PASS"}}}
 
-	engine, task, attempt, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
+	engine, task, _, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
 
-	err := retryLoop(context.Background(), engine, task, &attempt, vars, initialResults, initialChanges, 3)
+	err := retryLoop(context.Background(), engine, task, vars, initialResults, initialChanges, 3)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -239,9 +239,9 @@ func TestRetryLoop_DeployNotSuccess(t *testing.T) {
 	deployMock := &mockDeploy{deploySuccess: false}
 	testRunner := &mockTestRunner{results: []*TestResult{{Name: "unit-test", Type: "command", Passed: true, Output: "PASS"}}}
 
-	engine, task, attempt, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
+	engine, task, _, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
 
-	err := retryLoop(context.Background(), engine, task, &attempt, vars, initialResults, initialChanges, 3)
+	err := retryLoop(context.Background(), engine, task, vars, initialResults, initialChanges, 3)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -283,9 +283,9 @@ func TestRetryLoop_AttemptsAppended(t *testing.T) {
 		},
 	}
 
-	engine, task, attempt, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
+	engine, task, _, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
 
-	err := retryLoop(context.Background(), engine, task, &attempt, vars, initialResults, initialChanges, 3)
+	err := retryLoop(context.Background(), engine, task, vars, initialResults, initialChanges, 3)
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
@@ -336,12 +336,12 @@ func TestRetryLoop_ContextCancellation(t *testing.T) {
 	deployMock := &mockDeploy{deploySuccess: true}
 	testRunner := &mockTestRunner{results: []*TestResult{{Name: "unit-test", Type: "command", Passed: true, Output: "PASS"}}}
 
-	engine, task, attempt, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
+	engine, task, _, vars, initialResults, initialChanges := newRetryTestHarness(t, 3, aiMock, gitMock, deployMock, testRunner)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := retryLoop(ctx, engine, task, &attempt, vars, initialResults, initialChanges, 3)
+	err := retryLoop(ctx, engine, task, vars, initialResults, initialChanges, 3)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

@@ -95,11 +95,6 @@ func (a *CustomAdapter) Rollback(ctx context.Context) error {
 	return nil
 }
 
-// Status returns a stub status (not yet implemented).
-func (a *CustomAdapter) Status(ctx context.Context) (*Status, error) {
-	return &Status{Running: false}, nil
-}
-
 // runCommands executes a list of commands sequentially with retry logic.
 func (a *CustomAdapter) runCommands(ctx context.Context, cmds []config.CustomCommand, vars map[string]string) (*core.AdapterDeployResult, error) {
 	start := time.Now()

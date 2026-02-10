@@ -15,6 +15,8 @@ import (
 
 var ErrAwaitingApproval = errors.New("task awaiting approval")
 
+const defaultMaxRetry = 3
+
 type deployFailureAnalysisContextKey struct{}
 
 // Engine orchestrates the full execution cycle: issue -> code -> deploy -> test -> PR.
@@ -225,10 +227,10 @@ func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 
 	maxRetry := e.cfg.AI.MaxRetry
 	if maxRetry <= 0 {
-		maxRetry = 3
+		maxRetry = defaultMaxRetry
 	}
 
-	err = retryLoop(ctx, e, task, &attempt, vars, testResults, changes, maxRetry)
+	err = retryLoop(ctx, e, task, vars, testResults, changes, maxRetry)
 	if err != nil {
 		if errors.Is(err, ErrAwaitingApproval) {
 			if saveErr := SaveState(state, e.statePath); saveErr != nil {
@@ -343,7 +345,7 @@ func (e *Engine) Resume(ctx context.Context, taskID string, approved bool) error
 
 	maxRetry := e.cfg.AI.MaxRetry
 	if maxRetry <= 0 {
-		maxRetry = 3
+		maxRetry = defaultMaxRetry
 	}
 
 	retryChanges := []AIFileChange{}
@@ -351,7 +353,7 @@ func (e *Engine) Resume(ctx context.Context, taskID string, approved bool) error
 		retryChanges = proposedChangesToAIFileChanges(proposal.Changes)
 	}
 
-	err = retryLoop(ctx, e, task, &attempt, vars, testResults, retryChanges, maxRetry)
+	err = retryLoop(ctx, e, task, vars, testResults, retryChanges, maxRetry)
 	if err != nil {
 		if errors.Is(err, ErrAwaitingApproval) {
 			if saveErr := SaveState(state, e.statePath); saveErr != nil {

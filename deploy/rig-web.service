@@ -1,0 +1,26 @@
+[Unit]
+Description=Rig Web Dashboard
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rig
+Group=rig
+WorkingDirectory=/opt/rig
+ExecStart=/opt/rig/rig web -p 3000 -c /opt/rig/rig.yaml
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rig-web
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/rig
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

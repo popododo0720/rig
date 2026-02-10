@@ -1,6 +1,7 @@
 # Build artifacts
 /rig
 /rig.exe
+/rig-linux-amd64
 bin/
 dist/
 
