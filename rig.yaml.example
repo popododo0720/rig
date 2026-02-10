@@ -1,0 +1,6 @@
+# Rig configuration file
+# See: https://github.com/rigdev/rig
+project:
+  name: my-app
+  language: ""
+  description: ""

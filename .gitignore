@@ -1,0 +1,23 @@
+# Binary
+rig
+rig.exe
+
+# State
+rig.state.json
+
+# Environment
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
