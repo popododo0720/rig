@@ -1,0 +1,20 @@
+project:
+  name: ""
+  language: go
+
+source:
+  platform: invalid-platform
+  repo: ""
+
+ai:
+  provider: ""
+  model: ""
+
+deploy:
+  method: ""
+
+test: []
+
+workflow:
+  trigger: []
+  steps: []

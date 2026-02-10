@@ -75,3 +75,14 @@
 - **Windows/Git Bash**: Binary is `rig.exe`, invoked via `./rig.exe`. `sh -c` works for command execution in Git Bash environment.
 - Config loading requires env vars set (GITHUB_TOKEN, ANTHROPIC_API_KEY, WEBHOOK_SECRET) even for dry-run — this is by design in `config.LoadConfig` which validates env vars.
 - All 8 engine tests + 5 command runner tests pass. `go vet ./...` clean. `go build ./cmd/rig` produces working binary.
+
+## [2026-02-10] Task 10: E2E Integration Tests
+- **E2E tests reuse mock adapters** from engine_test.go since they're in the same `core` package. No need to duplicate or export — `mockAI`, `mockGit`, `mockDeploy`, `mockTestRunner`, `mockNotifier` are all directly usable.
+- **7 E2E test scenarios implemented**: HappyPath (full 10-step cycle), RetryPath (1 fail then pass), MaxRetry (all fail → rollback), ConfigInvalid (validation table tests + fixture), StateTransitions (verify notification order matches phase sequence), MultipleTestRunners (2 runners both pass), DryRun (no side effects).
+- **State file verification**: `verifyStateFile()` helper reads + unmarshals state.json after engine.Execute() completes. Asserts on task status, attempts count, PR creation, deploy results, test results, branch name, and CompletedAt timestamp.
+- **Retry loop mechanics verified**: TestE2ERetryPath confirms 2 attempts (1 failed + 1 passed), 2 commitAndPush calls, 2 deploy calls, 1 AI AnalyzeFailure call. TestE2EMaxRetry confirms 3 attempts (all failed), 2 AI failure calls (maxRetry=2), 1 rollback call, 3 deploy calls.
+- **Config validation gotcha**: `config.LoadConfig` scans raw YAML bytes for `${VAR}` patterns including inside comments. The rig.yaml.example initially had `${VAR_NAME}` in a comment which triggered "unresolved variables" error. Fixed by rewording the comment to avoid dollar-brace syntax.
+- **rig.yaml.example**: Complete config with all sections: project, source (GitHub), ai (Anthropic with context), deploy (custom with 3 commands + rollback), test (2 commands), workflow (triggers with labels/keywords), notify (comment), server. Uses `${GITHUB_TOKEN}`, `${ANTHROPIC_API_KEY}`, `${WEBHOOK_SECRET}` env vars.
+- **E2E fixtures**: 4 YAML files in testdata/e2e/ — happy_path.yaml, retry_path.yaml, max_retry.yaml, invalid_config.yaml. The invalid_config.yaml is used by TestE2EConfigInvalid to verify LoadConfig rejects bad configs.
+- **TestE2EConfigInvalid uses both approaches**: table-driven config.Validate() tests for specific validation rules + LoadConfig() on the invalid fixture file.
+- **All verification passes**: `go test ./internal/core/... -run TestE2E -v` all 7 tests PASS, `rig validate --config rig.yaml.example` exits 0, `go test ./...` full suite (9 packages) all PASS, `go build ./cmd/rig` clean, `go vet ./...` clean.

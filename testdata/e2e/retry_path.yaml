@@ -1,0 +1,51 @@
+project:
+  name: e2e-retry-path
+  language: go
+  description: E2E test retry path scenario
+
+source:
+  platform: github
+  repo: e2e-org/e2e-repo
+  base_branch: main
+
+ai:
+  provider: anthropic
+  model: claude-3-5-sonnet-20241022
+  max_retry: 3
+  context:
+    - "Go web application with retry"
+
+deploy:
+  method: custom
+  config:
+    commands:
+      - name: deploy
+        run: "echo deploying"
+        workdir: "."
+        timeout: 30s
+        transport:
+          type: local
+  timeout: 60s
+  rollback:
+    enabled: false
+
+test:
+  - type: command
+    name: integration-test
+    run: "echo test"
+    timeout: 30s
+
+workflow:
+  trigger:
+    - event: issue.opened
+      labels: ["auto"]
+  steps: ["code", "deploy", "test", "report"]
+  approval:
+    before_deploy: false
+
+notify:
+  - type: comment
+    on: ["all"]
+
+server:
+  port: 8081

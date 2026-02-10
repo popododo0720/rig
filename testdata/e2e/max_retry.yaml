@@ -1,0 +1,60 @@
+project:
+  name: e2e-max-retry
+  language: go
+  description: E2E test max retry scenario with rollback
+
+source:
+  platform: github
+  repo: e2e-org/e2e-repo
+  base_branch: main
+
+ai:
+  provider: anthropic
+  model: claude-3-5-sonnet-20241022
+  max_retry: 2
+  context:
+    - "Go application with strict tests"
+
+deploy:
+  method: custom
+  config:
+    commands:
+      - name: deploy
+        run: "echo deploying"
+        workdir: "."
+        timeout: 30s
+        transport:
+          type: local
+  timeout: 60s
+  rollback:
+    enabled: true
+    method: custom
+    config:
+      commands:
+        - name: rollback
+          run: "echo rolling back"
+          workdir: "."
+          timeout: 30s
+          transport:
+            type: local
+
+test:
+  - type: command
+    name: smoke-test
+    run: "echo FAIL && exit 1"
+    timeout: 30s
+
+workflow:
+  trigger:
+    - event: issue.opened
+      labels: ["auto"]
+  steps: ["code", "deploy", "test", "report"]
+  approval:
+    before_deploy: false
+
+notify:
+  - type: comment
+    on: ["all"]
+
+server:
+  port: 8082

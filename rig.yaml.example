@@ -1,6 +1,105 @@
-# Rig configuration file
-# See: https://github.com/rigdev/rig
+# Rig — AI Dev Agent Orchestrator
+# Full configuration example with all options documented.
+# Copy this file as rig.yaml and customize for your project.
+#
+# Environment variables: Use dollar-brace syntax (e.g. GITHUB_TOKEN) for secrets.
+# Rig resolves them from the host environment at load time.
+
+# ─── Project Metadata ────────────────────────────────────────────────
 project:
-  name: my-app
-  language: ""
-  description: ""
+  name: my-web-app
+  language: go
+  description: "Production web application with REST API and background workers"
+
+# ─── Source Code Repository ──────────────────────────────────────────
+source:
+  platform: github            # github | gitlab | bitbucket | gitea
+  repo: acme-corp/my-web-app  # owner/repo format
+  base_branch: main           # branch to open PRs against
+  token: ${GITHUB_TOKEN}      # GitHub personal access token (repo scope)
+
+# ─── AI Provider ─────────────────────────────────────────────────────
+ai:
+  provider: anthropic                    # anthropic | openai | ollama
+  model: claude-sonnet-4-20250514     # model identifier
+  api_key: ${ANTHROPIC_API_KEY}          # API key (keep in env, never commit)
+  max_retry: 3                           # max self-fix attempts (1–10)
+  context:                               # project-specific context for the AI
+    - "Go 1.22 web application using net/http and sqlx"
+    - "PostgreSQL database with migrations in db/migrations/"
+    - "REST API follows JSON:API spec"
+    - "Tests use standard testing package with testify assertions"
+    - "CI runs: go vet, go test ./..., golangci-lint"
+
+# ─── Deployment ──────────────────────────────────────────────────────
+deploy:
+  method: custom                         # custom | docker-compose | terraform | ansible | k8s
+  config:
+    commands:
+      - name: build
+        run: "go build -o bin/server ./cmd/server"
+        workdir: "."
+        timeout: 120s
+        retry: 1
+        transport:
+          type: local
+      - name: test-build
+        run: "go vet ./..."
+        workdir: "."
+        timeout: 60s
+        transport:
+          type: local
+      - name: deploy-staging
+        run: "echo 'Deploying to staging...'"
+        workdir: "."
+        timeout: 300s
+        retry: 2
+        transport:
+          type: local
+        env:
+          DEPLOY_ENV: staging
+  timeout: 600s
+  rollback:
+    enabled: true
+    method: custom
+    config:
+      commands:
+        - name: rollback-staging
+          run: "echo 'Rolling back staging deployment...'"
+          workdir: "."
+          timeout: 120s
+          transport:
+            type: local
+
+# ─── Tests ───────────────────────────────────────────────────────────
+test:
+  - type: command
+    name: unit-tests
+    run: "go test ./..."
+    timeout: 120s
+  - type: command
+    name: lint
+    run: "go vet ./..."
+    timeout: 60s
+
+# ─── Workflow ────────────────────────────────────────────────────────
+workflow:
+  trigger:
+    - event: issue.opened
+      labels: ["auto", "rig"]           # only process issues with these labels
+    - event: issue.labeled
+      labels: ["rig"]
+      keyword: "[rig]"                   # or issues containing this keyword
+  steps: ["code", "deploy", "test", "report"]
+  approval:
+    before_deploy: false                 # set true for production safety
+
+# ─── Notifications ───────────────────────────────────────────────────
+notify:
+  - type: comment                        # post status as GitHub issue comment
+    on: ["all"]                          # deploy | test_fail | test_pass | pr_created | all
+
+# ─── Webhook Server ─────────────────────────────────────────────────
+server:
+  port: 8080
+  secret: ${WEBHOOK_SECRET}              # GitHub webhook secret for signature verification
