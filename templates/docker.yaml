@@ -18,7 +18,7 @@ source:
 # ─── AI Provider ─────────────────────────────────────────────────────
 ai:
   provider: anthropic                    # anthropic | openai | ollama
-  model: claude-sonnet-4-20250514        # model identifier
+  model: claude-opus-4-6        # model identifier
   api_key: ${ANTHROPIC_API_KEY}          # API key (keep in env, never commit)
   max_retry: 3                           # max self-fix attempts (1–10)
   context:                               # project-specific context for the AI

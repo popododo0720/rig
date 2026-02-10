@@ -51,7 +51,7 @@ source:
 
 ai:
   provider: anthropic
-  model: claude-sonnet-4-20250514
+  model: claude-opus-4-6
   api_key: ${ANTHROPIC_API_KEY}
   max_retry: 3
   context:
@@ -109,7 +109,7 @@ source:
 
 ai:
   provider: anthropic
-  model: claude-sonnet-4-20250514
+  model: claude-opus-4-6
   api_key: ${ANTHROPIC_API_KEY}
   max_retry: 3
   context:

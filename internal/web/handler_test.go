@@ -88,7 +88,7 @@ func testConfig() *config.Config {
 		},
 		AI: config.AIConfig{
 			Provider: "anthropic",
-			Model:    "claude-sonnet-4-20250514",
+			Model:    "claude-opus-4-6",
 			APIKey:   "sk-ant-SECRET",
 			MaxRetry: 3,
 		},

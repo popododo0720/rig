@@ -59,6 +59,7 @@ func NewHandler(statePath string, cfg *config.Config) http.Handler {
 	// --- API routes ---
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/tasks", handleGetTasks(statePath))
+		r.Post("/tasks", handleCreateTask(statePath))
 		r.Get("/tasks/{id}", handleGetTask(statePath))
 		r.Get("/proposals", handleGetProposals(statePath))
 		r.Get("/proposals/{taskId}", handleGetTaskProposals(statePath))
@@ -108,6 +109,134 @@ func handleGetTask(statePath string) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+	}
+}
+
+type createTaskRequest struct {
+	IssueURL string `json:"issue_url"`
+	IssueID  string `json:"issue_id"`
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+}
+
+type issueURLParts struct {
+	owner  string
+	repo   string
+	number string
+}
+
+func parseIssueURL(url string) *issueURLParts {
+	// Parse: https://github.com/{owner}/{repo}/issues/{number}
+	// Also handle: http://github.com/{owner}/{repo}/issues/{number}
+	parts := issueURLParts{}
+
+	// Simple regex-free parsing
+	// Expected format: https://github.com/owner/repo/issues/123
+	if len(url) < 30 {
+		return nil
+	}
+
+	// Find "github.com/"
+	idx := 0
+	for i := 0; i < len(url)-10; i++ {
+		if url[i:i+11] == "github.com/" {
+			idx = i + 11
+			break
+		}
+	}
+	if idx == 0 {
+		return nil
+	}
+
+	// Extract owner/repo/issues/number
+	remaining := url[idx:]
+	segments := make([]string, 0)
+	current := ""
+	for i := 0; i < len(remaining); i++ {
+		if remaining[i] == '/' {
+			if current != "" {
+				segments = append(segments, current)
+				current = ""
+			}
+		} else if remaining[i] == '#' || remaining[i] == '?' {
+			if current != "" {
+				segments = append(segments, current)
+			}
+			break
+		} else {
+			current += string(remaining[i])
+		}
+	}
+	if current != "" {
+		segments = append(segments, current)
+	}
+
+	// Need at least: owner, repo, "issues", number
+	if len(segments) < 4 {
+		return nil
+	}
+
+	if segments[2] != "issues" {
+		return nil
+	}
+
+	parts.owner = segments[0]
+	parts.repo = segments[1]
+	parts.number = segments[3]
+
+	return &parts
+}
+
+func handleCreateTask(statePath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req createTaskRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+			return
+		}
+
+		// Parse issue_url if provided
+		var issue core.Issue
+		if req.IssueURL != "" {
+			parts := parseIssueURL(req.IssueURL)
+			if parts == nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid issue URL format"})
+				return
+			}
+			issue = core.Issue{
+				Platform: "github",
+				Repo:     parts.owner + "/" + parts.repo,
+				ID:       parts.number,
+				Title:    req.Title,
+				URL:      req.IssueURL,
+			}
+			if issue.Title == "" {
+				issue.Title = "Issue #" + parts.number
+			}
+		} else if req.IssueID != "" {
+			issue = core.Issue{
+				Platform: "github",
+				ID:       req.IssueID,
+				Title:    req.Title,
+			}
+		} else {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "issue_url or issue_id required"})
+			return
+		}
+
+		state, err := core.LoadState(statePath)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		task := state.CreateTask(issue)
+		if err := core.SaveState(state, statePath); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		writeJSON(w, http.StatusCreated, task)
 	}
 }
 

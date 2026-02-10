@@ -1198,6 +1198,222 @@ body::before {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* ─── MODAL ─── */
+.modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  animation: fadeIn var(--duration-normal) var(--ease-out);
+}
+
+.modal--open {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal__content {
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-l);
+  padding: var(--sp-6);
+  max-width: 500px;
+  width: 90%;
+  animation: slideUp var(--duration-normal) var(--ease-out);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-5);
+}
+
+.modal__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+
+.modal__close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+.modal__close:hover {
+  color: var(--text-primary);
+}
+
+.modal__tabs {
+  display: flex;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-5);
+  border-bottom: 1px solid var(--surface-3);
+}
+
+.modal__tab {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: var(--sp-3) var(--sp-4);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all var(--duration-fast) var(--ease-out);
+  margin-bottom: -1px;
+}
+
+.modal__tab:hover {
+  color: var(--text-primary);
+}
+
+.modal__tab--active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.modal__tab-content {
+  display: none;
+}
+
+.modal__tab-content--active {
+  display: block;
+}
+
+.form-group {
+  margin-bottom: var(--sp-4);
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+.form-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--sp-2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.form-input,
+.form-textarea {
+  width: 100%;
+  padding: var(--sp-3);
+  background: var(--surface-0);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-s);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  transition: border-color var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.form-input:focus,
+.form-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.form-textarea {
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+}
+
+.form-error {
+  display: none;
+  font-size: 11px;
+  color: var(--status-failed);
+  margin-top: var(--sp-1);
+}
+
+.form-error--show {
+  display: block;
+}
+
+.modal__actions {
+  display: flex;
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+}
+
+.modal__btn {
+  flex: 1;
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--radius-s);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  border: none;
+  transition: all var(--duration-fast) var(--ease-out);
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+}
+
+.modal__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modal__btn--primary {
+  background: var(--accent);
+  color: var(--text-inverse);
+}
+
+.modal__btn--primary:hover:not(:disabled) {
+  background: var(--accent-dim);
+  box-shadow: 0 0 16px var(--accent-glow-strong);
+}
+
+.modal__btn--secondary {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--surface-3);
+}
+
+.modal__btn--secondary:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--text-primary);
+}
+
 /* ─── RESPONSIVE ─── */
 @media (max-width: 768px) {
   .app {
@@ -1289,22 +1505,73 @@ body::before {
     </div>
   </aside>
 
-  <!-- Main -->
-  <main class="main" id="main">
-    <div class="main__header">
-      <div class="main__title">Tasks</div>
-      <div class="main__updated" id="last-updated"></div>
-    </div>
+   <!-- Main -->
+   <main class="main" id="main">
+     <div class="main__header">
+       <div class="main__title">Tasks</div>
+       <div style="display:flex;align-items:center;gap:var(--sp-4);">
+         <button class="btn btn--primary" onclick="openNewTaskModal()" style="background:var(--accent);color:var(--text-inverse);border:none;padding:var(--sp-2) var(--sp-4);border-radius:var(--radius-s);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;cursor:pointer;transition:all var(--duration-fast) var(--ease-out);">New Task</button>
+         <div class="main__updated" id="last-updated"></div>
+       </div>
+     </div>
     <div id="task-container">
       <div class="empty-state">
         <div class="empty-state__icon">&gt;_</div>
         <div class="empty-state__text">Loading tasks...</div>
       </div>
-    </div>
-  </main>
-</div>
+     </div>
+   </main>
+ </div>
 
-<script>
+ <!-- New Task Modal -->
+ <div class="modal" id="new-task-modal">
+   <div class="modal__content">
+     <div class="modal__header">
+       <h2 class="modal__title">Create New Task</h2>
+       <button class="modal__close" onclick="closeNewTaskModal()">&times;</button>
+     </div>
+
+     <div class="modal__tabs">
+       <button class="modal__tab modal__tab--active" onclick="switchTab('url', event)">GitHub URL</button>
+       <button class="modal__tab" onclick="switchTab('manual', event)">Manual Entry</button>
+     </div>
+
+     <!-- URL Tab -->
+     <div class="modal__tab-content modal__tab-content--active" id="tab-url">
+       <div class="form-group">
+         <label class="form-label">GitHub Issue URL</label>
+         <input type="text" class="form-input" id="issue-url" placeholder="https://github.com/owner/repo/issues/123">
+         <div class="form-error" id="error-url"></div>
+       </div>
+       <div class="form-group">
+         <label class="form-label">Title (optional)</label>
+         <input type="text" class="form-input" id="issue-title-url" placeholder="Leave blank to auto-fill from GitHub">
+         <div class="form-error" id="error-title-url"></div>
+       </div>
+     </div>
+
+     <!-- Manual Tab -->
+     <div class="modal__tab-content" id="tab-manual">
+       <div class="form-group">
+         <label class="form-label">Issue ID</label>
+         <input type="text" class="form-input" id="issue-id" placeholder="123">
+         <div class="form-error" id="error-id"></div>
+       </div>
+       <div class="form-group">
+         <label class="form-label">Title</label>
+         <input type="text" class="form-input" id="issue-title-manual" placeholder="Fix critical bug">
+         <div class="form-error" id="error-title-manual"></div>
+       </div>
+     </div>
+
+     <div class="modal__actions">
+       <button class="modal__btn modal__btn--secondary" onclick="closeNewTaskModal()">Cancel</button>
+       <button class="modal__btn modal__btn--primary" id="submit-btn" onclick="submitNewTask()">Create Task</button>
+     </div>
+   </div>
+ </div>
+
+ <script>
 (function() {
   "use strict";
 
@@ -2016,6 +2283,138 @@ body::before {
       pollTimer = null;
     }
   }
+
+  // ── New Task Modal ──
+  var currentTab = "url";
+
+  window.openNewTaskModal = function() {
+    var modal = document.getElementById("new-task-modal");
+    modal.classList.add("modal--open");
+    document.getElementById("issue-url").focus();
+  };
+
+  window.closeNewTaskModal = function() {
+    var modal = document.getElementById("new-task-modal");
+    modal.classList.remove("modal--open");
+    clearFormErrors();
+    clearFormInputs();
+  };
+
+  window.switchTab = function(tab, e) {
+    if (e) e.preventDefault();
+    currentTab = tab;
+    
+    // Update tab buttons
+    var tabs = document.querySelectorAll(".modal__tab");
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].classList.remove("modal__tab--active");
+    }
+    e.target.classList.add("modal__tab--active");
+    
+    // Update tab content
+    var contents = document.querySelectorAll(".modal__tab-content");
+    for (var i = 0; i < contents.length; i++) {
+      contents[i].classList.remove("modal__tab-content--active");
+    }
+    document.getElementById("tab-" + tab).classList.add("modal__tab-content--active");
+    
+    clearFormErrors();
+  };
+
+  function clearFormErrors() {
+    var errors = document.querySelectorAll(".form-error");
+    for (var i = 0; i < errors.length; i++) {
+      errors[i].classList.remove("form-error--show");
+      errors[i].textContent = "";
+    }
+  }
+
+  function clearFormInputs() {
+    document.getElementById("issue-url").value = "";
+    document.getElementById("issue-title-url").value = "";
+    document.getElementById("issue-id").value = "";
+    document.getElementById("issue-title-manual").value = "";
+  }
+
+  function showError(fieldId, message) {
+    var errorEl = document.getElementById("error-" + fieldId);
+    if (errorEl) {
+      errorEl.textContent = message;
+      errorEl.classList.add("form-error--show");
+    }
+  }
+
+  window.submitNewTask = function() {
+    clearFormErrors();
+    var submitBtn = document.getElementById("submit-btn");
+    var hasError = false;
+
+    var payload = {};
+
+    if (currentTab === "url") {
+      var issueUrl = document.getElementById("issue-url").value.trim();
+      if (!issueUrl) {
+        showError("url", "GitHub issue URL is required");
+        hasError = true;
+      } else {
+        payload.issue_url = issueUrl;
+      }
+      var titleUrl = document.getElementById("issue-title-url").value.trim();
+      if (titleUrl) {
+        payload.title = titleUrl;
+      }
+    } else {
+      var issueId = document.getElementById("issue-id").value.trim();
+      if (!issueId) {
+        showError("id", "Issue ID is required");
+        hasError = true;
+      } else {
+        payload.issue_id = issueId;
+      }
+      var titleManual = document.getElementById("issue-title-manual").value.trim();
+      if (!titleManual) {
+        showError("title-manual", "Title is required");
+        hasError = true;
+      } else {
+        payload.title = titleManual;
+      }
+    }
+
+    if (hasError) return;
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="btn__spinner"></span> Creating...';
+
+    fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(function(r) {
+        if (!r.ok) {
+          return r.json().then(function(data) {
+            throw new Error(data.error || "HTTP " + r.status);
+          });
+        }
+        return r.json();
+      })
+      .then(function(task) {
+        closeNewTaskModal();
+        fetchTasks();
+      })
+      .catch(function(err) {
+        showError(currentTab === "url" ? "url" : "id", err.message || "Failed to create task");
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = "Create Task";
+      });
+  };
+
+  // Close modal on background click
+  document.getElementById("new-task-modal").addEventListener("click", function(e) {
+    if (e.target === this) {
+      closeNewTaskModal();
+    }
+  });
 
   // ── Boot ──
   loadConfig();
