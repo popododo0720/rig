@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -59,13 +60,14 @@ func NewHandler(statePath string, cfg *config.Config) http.Handler {
 	// --- API routes ---
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/tasks", handleGetTasks(statePath))
-		r.Post("/tasks", handleCreateTask(statePath))
+		r.Post("/tasks", handleCreateTask(statePath, cfg))
 		r.Get("/tasks/{id}", handleGetTask(statePath))
 		r.Get("/proposals", handleGetProposals(statePath))
 		r.Get("/proposals/{taskId}", handleGetTaskProposals(statePath))
 		r.Post("/approve/{taskId}", handleApprove(statePath, cfg))
 		r.Post("/reject/{taskId}", handleReject(statePath))
 		r.Get("/config", handleGetConfig(cfg))
+		r.Get("/projects", handleGetProjects(cfg))
 		r.Get("/events", handleSSE(statePath))
 	})
 
@@ -113,10 +115,45 @@ func handleGetTask(statePath string) http.HandlerFunc {
 }
 
 type createTaskRequest struct {
+	Project  string `json:"project"`
+	IssueNum string `json:"issue_num"`
 	IssueURL string `json:"issue_url"`
 	IssueID  string `json:"issue_id"`
 	Title    string `json:"title"`
 	Body     string `json:"body"`
+}
+
+func mergedProjects(cfg *config.Config) []config.ProjectEntry {
+	projects := make([]config.ProjectEntry, 0, 1+len(cfg.Projects))
+	seen := make(map[string]struct{}, 1+len(cfg.Projects))
+
+	appendUnique := func(p config.ProjectEntry) {
+		repo := strings.TrimSpace(p.Repo)
+		if repo == "" {
+			return
+		}
+		if _, ok := seen[repo]; ok {
+			return
+		}
+		if p.Platform == "" {
+			p.Platform = "github"
+		}
+		projects = append(projects, p)
+		seen[repo] = struct{}{}
+	}
+
+	appendUnique(config.ProjectEntry{
+		Name:       cfg.Project.Name,
+		Platform:   cfg.Source.Platform,
+		Repo:       cfg.Source.Repo,
+		BaseBranch: cfg.Source.BaseBranch,
+	})
+
+	for i := range cfg.Projects {
+		appendUnique(cfg.Projects[i])
+	}
+
+	return projects
 }
 
 type issueURLParts struct {
@@ -187,7 +224,7 @@ func parseIssueURL(url string) *issueURLParts {
 	return &parts
 }
 
-func handleCreateTask(statePath string) http.HandlerFunc {
+func handleCreateTask(statePath string, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createTaskRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -195,9 +232,43 @@ func handleCreateTask(statePath string) http.HandlerFunc {
 			return
 		}
 
+		req.Project = strings.TrimSpace(req.Project)
+		req.IssueNum = strings.TrimSpace(req.IssueNum)
+		req.IssueURL = strings.TrimSpace(req.IssueURL)
+		req.IssueID = strings.TrimSpace(req.IssueID)
+		req.Title = strings.TrimSpace(req.Title)
+
 		// Parse issue_url if provided
 		var issue core.Issue
-		if req.IssueURL != "" {
+		if req.Project != "" && req.IssueNum != "" {
+			projects := mergedProjects(cfg)
+			var project *config.ProjectEntry
+			for i := range projects {
+				if projects[i].Repo == req.Project {
+					project = &projects[i]
+					break
+				}
+			}
+			if project == nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "project not found"})
+				return
+			}
+			platform := project.Platform
+			if platform == "" {
+				platform = "github"
+			}
+			issueURL := "https://github.com/" + project.Repo + "/issues/" + req.IssueNum
+			issue = core.Issue{
+				Platform: platform,
+				Repo:     project.Repo,
+				ID:       req.IssueNum,
+				Title:    req.Title,
+				URL:      issueURL,
+			}
+			if issue.Title == "" {
+				issue.Title = "Issue #" + req.IssueNum
+			}
+		} else if req.IssueURL != "" {
 			parts := parseIssueURL(req.IssueURL)
 			if parts == nil {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid issue URL format"})
@@ -220,7 +291,7 @@ func handleCreateTask(statePath string) http.HandlerFunc {
 				Title:    req.Title,
 			}
 		} else {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "issue_url or issue_id required"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "project+issue_num or issue_url or issue_id required"})
 			return
 		}
 
@@ -237,6 +308,14 @@ func handleCreateTask(statePath string) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusCreated, task)
+	}
+}
+
+func handleGetProjects(cfg *config.Config) http.HandlerFunc {
+	projects := mergedProjects(cfg)
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, projects)
 	}
 }
 

@@ -1,17 +1,20 @@
-# Rig — AI Dev Agent Orchestrator
+# Rig — AI-Powered CI/CD Orchestrator
 
-GitHub 이슈를 받아 AI가 코드를 생성하고, 배포하고, 테스트하고, PR을 만드는 자동화 에이전트.
-실패하면 스스로 분석해서 고치고 다시 시도합니다.
+Jenkins의 AI 버전. GitHub 이슈를 받아 AI가 코드를 생성하고, 배포하고, 테스트하고, 실패하면 스스로 분석해서 고치고, PR까지 만드는 자동화 파이프라인.
+
+> **Jenkins가 스크립트를 실행한다면, Rig는 AI가 코드를 짜고, 배포를 분석하고, 인프라까지 수정 제안한다.**
 
 ## 핵심 기능
 
-- **이슈 → PR 자동화**: `rig` 라벨이 붙은 이슈를 자동 처리
-- **셀프 힐링**: 테스트 실패 시 AI가 분석 후 재시도 (최대 10회)
-- **배포 실패 자동 분석**: 배포 실패 시 AI가 인프라 파일을 분석하고 수정안 제안
-- **제안/승인 시스템**: AI가 제안한 인프라 변경사항을 사람이 검토 후 승인/거부
+- **이슈 → PR 자동화**: `rig` 라벨이 붙은 이슈를 AI가 자동 처리
+- **셀프 힐링**: 테스트 실패 시 AI가 분석 후 코드 수정 → 재시도 (설정 가능)
+- **배포 실패 자동 분석**: 배포 실패 시 AI가 인프라 파일(ansible, docker-compose, k8s 등)을 분석하고 수정안 제안
+- **제안/승인 시스템**: AI가 제안한 인프라 변경사항을 사람이 검토 후 승인/거부 (안전장치)
+- **멀티 프로젝트**: 여러 GitHub 레포를 하나의 Rig 인스턴스에서 관리
+- **멀티 AI 프로바이더**: Anthropic (Claude), OpenAI (GPT), Ollama (로컬 LLM)
 - **유연한 배포**: 로컬 커맨드, SSH 원격 실행, Docker Compose 지원
-- **상태 머신**: 12단계 실행 사이클 + 파이프라인 추적 + 롤백
-- **웹 대시보드**: 파이프라인 시각화, 제안 Diff 뷰어, 승인/거부 버튼
+- **파이프라인 추적**: 12단계 실행 사이클 + 단계별 상태/에러/타이밍 기록
+- **웹 대시보드**: 파이프라인 시각화, 태스크 등록, 제안 Diff 뷰어, 승인/거부 버튼
 - **웹훅 서버**: GitHub 이벤트 수신 → 자동 트리거
 
 ## 빠른 시작
@@ -19,7 +22,7 @@ GitHub 이슈를 받아 AI가 코드를 생성하고, 배포하고, 테스트하
 ### 1. 빌드
 
 ```bash
-git clone https://github.com/rigdev/rig.git
+git clone https://github.com/popododo0720/rig.git
 cd rig
 go build -o rig ./cmd/rig
 
@@ -99,7 +102,7 @@ source:
 
 ai:
   provider: anthropic           # anthropic | openai | ollama
-  model: claude-sonnet-4-20250514
+  model: claude-opus-4-6        # 기본값. 또는 claude-sonnet-4-20250514
   api_key: ${ANTHROPIC_API_KEY}
   max_retry: 3
 
@@ -135,7 +138,7 @@ server:
 ```yaml
 ai:
   provider: anthropic
-  model: claude-sonnet-4-20250514     # 또는 claude-3-5-sonnet-20241022
+  model: claude-opus-4-6              # 또는 claude-sonnet-4-20250514
   api_key: ${ANTHROPIC_API_KEY}
   max_retry: 3
 ```
@@ -288,6 +291,28 @@ workflow:
   approval:
     before_deploy: false           # true면 배포 전 승인 필요
 ```
+
+### 멀티 프로젝트 설정
+
+여러 GitHub 레포를 하나의 Rig 인스턴스에서 관리:
+
+```yaml
+projects:
+  - name: backend-api
+    platform: github
+    repo: popododo0720/backend-api
+    base_branch: main
+  - name: frontend-app
+    platform: github
+    repo: popododo0720/frontend-app
+    base_branch: develop
+  - name: infra
+    platform: github
+    repo: popododo0720/infra
+    base_branch: main
+```
+
+> 웹 대시보드의 **New Task** 모달에서 프로젝트를 선택하면 해당 레포의 이슈를 바로 처리합니다.
 
 ### 알림
 
@@ -489,6 +514,8 @@ open http://localhost:3000
 - **파이프라인 시각화**: 각 단계별 진행 상태 (성공/실패/실행 중/건너뜀)
 - **제안 Diff 뷰어**: AI가 제안한 인프라 변경사항을 Before/After로 비교
 - **승인/거부 버튼**: 대기 중인 제안을 웹에서 바로 처리
+- **태스크 등록**: 웹에서 직접 이슈 URL 입력 → 태스크 생성
+- **프로젝트 관리**: 멀티 프로젝트 드롭다운으로 프로젝트별 태스크 분류
 - 태스크 상세: 시도 타임라인, 배포 결과, 테스트 결과, 에러 사유
 - PR 링크 바로가기
 - 다크 테마 (Ink & Ember)
@@ -498,6 +525,8 @@ API 엔드포인트:
 |------|------|
 | `GET /api/tasks` | 전체 태스크 목록 (파이프라인 + 제안 포함) |
 | `GET /api/tasks/{id}` | 태스크 상세 |
+| `POST /api/tasks` | 새 태스크 생성 (웹에서 이슈 URL 입력) |
+| `GET /api/projects` | 등록된 프로젝트 목록 |
 | `GET /api/proposals` | 대기 중인 제안 목록 |
 | `GET /api/proposals/{taskId}` | 특정 태스크의 대기 중인 제안 |
 | `POST /api/approve/{taskId}` | 제안 승인 |

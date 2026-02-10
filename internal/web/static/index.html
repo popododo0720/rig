@@ -334,9 +334,19 @@ body::before {
   color: var(--text-primary);
   font-weight: 500;
   max-width: 320px;
+}
+
+.task-row__title-main {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.task-row__repo {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: lowercase;
 }
 
 .task-row__branch {
@@ -1268,42 +1278,67 @@ body::before {
   color: var(--text-primary);
 }
 
-.modal__tabs {
-  display: flex;
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-5);
-  border-bottom: 1px solid var(--surface-3);
+.form-select {
+  width: 100%;
+  padding: var(--sp-3);
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-s);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  transition: border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
 }
 
-.modal__tab {
-  background: none;
+.form-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.issue-input {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  background: var(--surface-1);
+}
+
+.issue-preview {
+  margin-top: var(--sp-2);
+  font-size: 11px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  background: transparent;
   border: none;
   color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
+  font-family: inherit;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  padding: var(--sp-3) var(--sp-4);
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: all var(--duration-fast) var(--ease-out);
-  margin-bottom: -1px;
+  padding: 0;
 }
 
-.modal__tab:hover {
+.advanced-toggle:hover {
   color: var(--text-primary);
 }
 
-.modal__tab--active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-
-.modal__tab-content {
+.advanced-panel {
   display: none;
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--surface-1);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-s);
 }
 
-.modal__tab-content--active {
+.advanced-panel--open {
   display: block;
 }
 
@@ -1526,46 +1561,43 @@ body::before {
  <!-- New Task Modal -->
  <div class="modal" id="new-task-modal">
    <div class="modal__content">
-     <div class="modal__header">
-       <h2 class="modal__title">Create New Task</h2>
-       <button class="modal__close" onclick="closeNewTaskModal()">&times;</button>
-     </div>
+      <div class="modal__header">
+        <h2 class="modal__title">Create New Task</h2>
+        <button class="modal__close" onclick="closeNewTaskModal()">&times;</button>
+      </div>
 
-     <div class="modal__tabs">
-       <button class="modal__tab modal__tab--active" onclick="switchTab('url', event)">GitHub URL</button>
-       <button class="modal__tab" onclick="switchTab('manual', event)">Manual Entry</button>
-     </div>
+      <div class="form-group">
+        <label class="form-label">Project</label>
+        <select class="form-select" id="task-project"></select>
+        <div class="form-error" id="error-project"></div>
+      </div>
 
-     <!-- URL Tab -->
-     <div class="modal__tab-content modal__tab-content--active" id="tab-url">
-       <div class="form-group">
-         <label class="form-label">GitHub Issue URL</label>
-         <input type="text" class="form-input" id="issue-url" placeholder="https://github.com/owner/repo/issues/123">
-         <div class="form-error" id="error-url"></div>
-       </div>
-       <div class="form-group">
-         <label class="form-label">Title (optional)</label>
-         <input type="text" class="form-input" id="issue-title-url" placeholder="Leave blank to auto-fill from GitHub">
-         <div class="form-error" id="error-title-url"></div>
-       </div>
-     </div>
+      <div class="form-group">
+        <label class="form-label">Issue Number</label>
+        <input type="number" min="1" class="form-input issue-input" id="issue-num" placeholder="123">
+        <div class="issue-preview" id="issue-url-preview">github.com/-/issues/-</div>
+        <div class="form-error" id="error-issue-num"></div>
+      </div>
 
-     <!-- Manual Tab -->
-     <div class="modal__tab-content" id="tab-manual">
-       <div class="form-group">
-         <label class="form-label">Issue ID</label>
-         <input type="text" class="form-input" id="issue-id" placeholder="123">
-         <div class="form-error" id="error-id"></div>
-       </div>
-       <div class="form-group">
-         <label class="form-label">Title</label>
-         <input type="text" class="form-input" id="issue-title-manual" placeholder="Fix critical bug">
-         <div class="form-error" id="error-title-manual"></div>
-       </div>
-     </div>
+      <div class="form-group">
+        <label class="form-label">Title (optional)</label>
+        <input type="text" class="form-input" id="issue-title" placeholder="Leave blank to use Issue #number">
+      </div>
 
-     <div class="modal__actions">
-       <button class="modal__btn modal__btn--secondary" onclick="closeNewTaskModal()">Cancel</button>
+      <div class="form-group" style="margin-top:var(--sp-5);">
+        <button class="advanced-toggle" type="button" onclick="toggleAdvancedMode()">Advanced: Enter Full URL</button>
+        <div class="advanced-panel" id="advanced-panel">
+          <div class="form-group">
+            <label class="form-label">GitHub Issue URL</label>
+            <input type="text" class="form-input" id="issue-url-advanced" placeholder="https://github.com/owner/repo/issues/123">
+            <div class="form-error" id="error-issue-url"></div>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);">When URL is set, it overrides project + issue number.</div>
+        </div>
+      </div>
+
+      <div class="modal__actions">
+        <button class="modal__btn modal__btn--secondary" onclick="closeNewTaskModal()">Cancel</button>
        <button class="modal__btn modal__btn--primary" id="submit-btn" onclick="submitNewTask()">Create Task</button>
      </div>
    </div>
@@ -1583,6 +1615,9 @@ body::before {
   var evtSource = null;
   var expandedPipelineStep = null;
   var expandedDiffFiles = {};
+  var projects = [];
+  var projectsLoaded = false;
+  var advancedMode = false;
 
   // ── Pipeline phase order ──
   var PIPELINE_PHASES = [
@@ -1657,6 +1692,13 @@ body::before {
     var m = Math.floor(s / 60);
     s = (s % 60).toFixed(0);
     return m + "m " + s + "s";
+  }
+
+  function shortRepoName(repo) {
+    if (!repo) return "-";
+    var idx = repo.lastIndexOf("/");
+    if (idx === -1 || idx === repo.length - 1) return repo;
+    return repo.slice(idx + 1);
   }
 
   function formatStepDuration(startIso, endIso) {
@@ -2011,11 +2053,14 @@ body::before {
       var t = sorted[i];
       var isExpanded = expandedId === t.id;
       var delay = Math.min(i * 30, 300);
+      var issueTitle = t.issue ? t.issue.title : "-";
+      var issueRepo = t.issue ? t.issue.repo : "";
+      var repoLabel = shortRepoName(issueRepo);
 
       html += '<tr class="task-row stagger-enter' + (isExpanded ? ' task-row--expanded' : '') +
               '" data-id="' + escapeHTML(t.id) + '" style="animation-delay:' + delay + 'ms">' +
         '<td class="task-row__id">' + escapeHTML(t.id) + '</td>' +
-        '<td class="task-row__title">' + escapeHTML(t.issue ? t.issue.title : "-") + '</td>' +
+        '<td class="task-row__title"><div class="task-row__title-main">' + escapeHTML(issueTitle) + '</div><div class="task-row__repo">' + escapeHTML(repoLabel) + '</div></td>' +
         '<td><span class="badge badge--' + escapeHTML(t.status) + '">' + escapeHTML(t.status) + '</span></td>' +
         '<td class="task-row__branch">' + escapeHTML(t.branch || "-") + '</td>' +
         '<td class="task-row__time">' + formatDate(t.created_at) + '</td>' +
@@ -2285,12 +2330,65 @@ body::before {
   }
 
   // ── New Task Modal ──
-  var currentTab = "url";
+  function renderProjectOptions() {
+    var select = document.getElementById("task-project");
+    if (!select) return;
+
+    if (!projects || projects.length === 0) {
+      select.innerHTML = '<option value="">No projects configured</option>';
+      return;
+    }
+
+    var html = "";
+    for (var i = 0; i < projects.length; i++) {
+      var p = projects[i];
+      var label = p.name ? p.name + " (" + p.repo + ")" : p.repo;
+      html += '<option value="' + escapeHTML(p.repo) + '">' + escapeHTML(label) + '</option>';
+    }
+    select.innerHTML = html;
+  }
+
+  function loadProjects() {
+    return fetch("/api/projects")
+      .then(function(r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        projects = Array.isArray(data) ? data : [];
+        projectsLoaded = true;
+        renderProjectOptions();
+        updateIssuePreview();
+      })
+      .catch(function() {
+        projects = [];
+        projectsLoaded = true;
+        renderProjectOptions();
+      });
+  }
+
+  function updateIssuePreview() {
+    var select = document.getElementById("task-project");
+    var issueNum = document.getElementById("issue-num").value.trim();
+    var preview = document.getElementById("issue-url-preview");
+    var repo = select && select.value ? select.value : "-";
+    var num = issueNum || "-";
+    preview.textContent = "github.com/" + repo + "/issues/" + num;
+  }
 
   window.openNewTaskModal = function() {
     var modal = document.getElementById("new-task-modal");
     modal.classList.add("modal--open");
-    document.getElementById("issue-url").focus();
+
+    if (!projectsLoaded) {
+      loadProjects().then(function() {
+        document.getElementById("issue-num").focus();
+      });
+    } else {
+      renderProjectOptions();
+      updateIssuePreview();
+      document.getElementById("issue-num").focus();
+    }
   };
 
   window.closeNewTaskModal = function() {
@@ -2298,27 +2396,19 @@ body::before {
     modal.classList.remove("modal--open");
     clearFormErrors();
     clearFormInputs();
+    advancedMode = false;
+    document.getElementById("advanced-panel").classList.remove("advanced-panel--open");
   };
 
-  window.switchTab = function(tab, e) {
-    if (e) e.preventDefault();
-    currentTab = tab;
-    
-    // Update tab buttons
-    var tabs = document.querySelectorAll(".modal__tab");
-    for (var i = 0; i < tabs.length; i++) {
-      tabs[i].classList.remove("modal__tab--active");
+  window.toggleAdvancedMode = function() {
+    advancedMode = !advancedMode;
+    var panel = document.getElementById("advanced-panel");
+    if (advancedMode) {
+      panel.classList.add("advanced-panel--open");
+      document.getElementById("issue-url-advanced").focus();
+    } else {
+      panel.classList.remove("advanced-panel--open");
     }
-    e.target.classList.add("modal__tab--active");
-    
-    // Update tab content
-    var contents = document.querySelectorAll(".modal__tab-content");
-    for (var i = 0; i < contents.length; i++) {
-      contents[i].classList.remove("modal__tab-content--active");
-    }
-    document.getElementById("tab-" + tab).classList.add("modal__tab-content--active");
-    
-    clearFormErrors();
   };
 
   function clearFormErrors() {
@@ -2330,10 +2420,10 @@ body::before {
   }
 
   function clearFormInputs() {
-    document.getElementById("issue-url").value = "";
-    document.getElementById("issue-title-url").value = "";
-    document.getElementById("issue-id").value = "";
-    document.getElementById("issue-title-manual").value = "";
+    document.getElementById("issue-num").value = "";
+    document.getElementById("issue-title").value = "";
+    document.getElementById("issue-url-advanced").value = "";
+    updateIssuePreview();
   }
 
   function showError(fieldId, message) {
@@ -2351,33 +2441,30 @@ body::before {
 
     var payload = {};
 
-    if (currentTab === "url") {
-      var issueUrl = document.getElementById("issue-url").value.trim();
-      if (!issueUrl) {
-        showError("url", "GitHub issue URL is required");
-        hasError = true;
-      } else {
-        payload.issue_url = issueUrl;
-      }
-      var titleUrl = document.getElementById("issue-title-url").value.trim();
-      if (titleUrl) {
-        payload.title = titleUrl;
-      }
+    var selectedProject = document.getElementById("task-project").value;
+    var issueNum = document.getElementById("issue-num").value.trim();
+    var issueURL = document.getElementById("issue-url-advanced").value.trim();
+    var title = document.getElementById("issue-title").value.trim();
+
+    if (issueURL) {
+      payload.issue_url = issueURL;
     } else {
-      var issueId = document.getElementById("issue-id").value.trim();
-      if (!issueId) {
-        showError("id", "Issue ID is required");
+      if (!selectedProject) {
+        showError("project", "Project is required");
         hasError = true;
       } else {
-        payload.issue_id = issueId;
+        payload.project = selectedProject;
       }
-      var titleManual = document.getElementById("issue-title-manual").value.trim();
-      if (!titleManual) {
-        showError("title-manual", "Title is required");
+      if (!issueNum) {
+        showError("issue-num", "Issue number is required");
         hasError = true;
       } else {
-        payload.title = titleManual;
+        payload.issue_num = issueNum;
       }
+    }
+
+    if (title) {
+      payload.title = title;
     }
 
     if (hasError) return;
@@ -2403,7 +2490,11 @@ body::before {
         fetchTasks();
       })
       .catch(function(err) {
-        showError(currentTab === "url" ? "url" : "id", err.message || "Failed to create task");
+        if (issueURL) {
+          showError("issue-url", err.message || "Failed to create task");
+        } else {
+          showError("issue-num", err.message || "Failed to create task");
+        }
         submitBtn.disabled = false;
         submitBtn.innerHTML = "Create Task";
       });
@@ -2416,8 +2507,12 @@ body::before {
     }
   });
 
+  document.getElementById("task-project").addEventListener("change", updateIssuePreview);
+  document.getElementById("issue-num").addEventListener("input", updateIssuePreview);
+
   // ── Boot ──
   loadConfig();
+  loadProjects();
   fetchTasks(); // Initial fetch
   connectSSE();
 })();

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -208,6 +209,73 @@ func TestGetConfig(t *testing.T) {
 	}
 	if containsString(body, "sk-ant-SECRET") {
 		t.Error("response must not contain API key")
+	}
+}
+
+func TestGetProjectsMergedAndDeduped(t *testing.T) {
+	statePath := writeStateFile(t, testState())
+	cfg := testConfig()
+	cfg.Projects = []config.ProjectEntry{
+		{Name: "duplicate-main", Platform: "github", Repo: "acme/app", BaseBranch: "main"},
+		{Name: "other-app", Platform: "github", Repo: "acme/other", BaseBranch: "develop"},
+	}
+	handler := NewHandler(statePath, cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/projects", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var projects []config.ProjectEntry
+	if err := json.NewDecoder(rec.Body).Decode(&projects); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if len(projects) != 2 {
+		t.Fatalf("expected 2 projects, got %d", len(projects))
+	}
+
+	if projects[0].Repo != "acme/app" {
+		t.Fatalf("expected first project repo acme/app, got %q", projects[0].Repo)
+	}
+	if projects[1].Repo != "acme/other" {
+		t.Fatalf("expected second project repo acme/other, got %q", projects[1].Repo)
+	}
+}
+
+func TestCreateTaskWithProjectAndIssueNum(t *testing.T) {
+	statePath := writeStateFile(t, &core.State{Version: "1.0", Tasks: []core.Task{}})
+	handler := NewHandler(statePath, testConfig())
+
+	body := `{"project":"acme/app","issue_num":"123"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", rec.Code)
+	}
+
+	var task core.Task
+	if err := json.NewDecoder(rec.Body).Decode(&task); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if task.Issue.Repo != "acme/app" {
+		t.Fatalf("expected issue repo acme/app, got %q", task.Issue.Repo)
+	}
+	if task.Issue.ID != "123" {
+		t.Fatalf("expected issue id 123, got %q", task.Issue.ID)
+	}
+	if task.Issue.URL != "https://github.com/acme/app/issues/123" {
+		t.Fatalf("unexpected issue url: %q", task.Issue.URL)
+	}
+	if task.Issue.Title != "Issue #123" {
+		t.Fatalf("expected default issue title, got %q", task.Issue.Title)
 	}
 }
 

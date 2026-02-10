@@ -12,6 +12,15 @@ type Config struct {
 	Workflow WorkflowConfig `yaml:"workflow"`
 	Notify   []NotifyConfig `yaml:"notify"`
 	Server   ServerConfig   `yaml:"server"`
+	Projects []ProjectEntry `yaml:"projects"`
+}
+
+// ProjectEntry defines an additional project target for issue intake.
+type ProjectEntry struct {
+	Name       string `yaml:"name" json:"name"`
+	Platform   string `yaml:"platform" json:"platform"`
+	Repo       string `yaml:"repo" json:"repo"`
+	BaseBranch string `yaml:"base_branch" json:"base_branch"`
 }
 
 // ProjectConfig holds project metadata.
