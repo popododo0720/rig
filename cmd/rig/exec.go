@@ -85,7 +85,7 @@ func buildEngineForIssue(cfg *config.Config, statePath string, issueNumber int) 
 		return nil, fmt.Errorf("create git adapter: %w", err)
 	}
 
-	aiAdapter, err := adapterai.NewAnthropic(cfg.AI)
+	aiAdapter, err := newAIAdapter(cfg.AI)
 	if err != nil {
 		return nil, fmt.Errorf("create ai adapter: %w", err)
 	}
@@ -118,6 +118,20 @@ func buildEngineForIssue(cfg *config.Config, statePath string, issueNumber int) 
 	}
 
 	return core.NewEngine(cfg, gitAdapter, aiAdapter, deployAdapter, testRunners, notifiers, statePath), nil
+}
+
+// newAIAdapter creates the appropriate AI adapter based on the provider config.
+func newAIAdapter(cfg config.AIConfig) (core.AIAdapter, error) {
+	switch cfg.Provider {
+	case "anthropic", "":
+		return adapterai.NewAnthropic(cfg)
+	case "openai":
+		return adapterai.NewOpenAI(cfg)
+	case "ollama":
+		return adapterai.NewOllama(cfg)
+	default:
+		return nil, fmt.Errorf("unsupported ai provider %q: supported providers are anthropic, openai, ollama", cfg.Provider)
+	}
 }
 
 func splitRepo(repo string) (string, string, error) {
