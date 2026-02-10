@@ -1,0 +1,117 @@
+# Rig Configuration Template — Docker Deploy
+# This template demonstrates Docker-based deployment using docker-compose.
+# Copy this file as rig.yaml and customize for your project.
+
+# ─── Project Metadata ────────────────────────────────────────────────
+project:
+  name: my-docker-app
+  language: go
+  description: "Containerized web application with Docker deployment"
+
+# ─── Source Code Repository ──────────────────────────────────────────
+source:
+  platform: github                # github | gitlab | bitbucket | gitea
+  repo: acme-corp/my-docker-app   # owner/repo format
+  base_branch: main               # branch to open PRs against
+  token: ${GITHUB_TOKEN}          # GitHub personal access token (repo scope)
+
+# ─── AI Provider ─────────────────────────────────────────────────────
+ai:
+  provider: anthropic                    # anthropic | openai | ollama
+  model: claude-sonnet-4-20250514        # model identifier
+  api_key: ${ANTHROPIC_API_KEY}          # API key (keep in env, never commit)
+  max_retry: 3                           # max self-fix attempts (1–10)
+  context:                               # project-specific context for the AI
+    - "Go 1.22 web application containerized with Docker"
+    - "Multi-stage Dockerfile for minimal production images"
+    - "Docker Compose for local development and staging"
+    - "PostgreSQL database in separate container"
+    - "Tests run in isolated Docker containers"
+
+# ─── Deployment ──────────────────────────────────────────────────────
+# Docker-compose deployment method uses docker-compose.yml for orchestration.
+# Alternatively, you can use custom method with docker build/push commands.
+deploy:
+  method: docker-compose                 # docker-compose | custom
+  config:
+    file: docker-compose.yml             # path to docker-compose file
+    env_file: .env                       # environment file for containers
+    services: ["app", "db"]              # services to deploy (optional, defaults to all)
+  timeout: 600s                          # overall deploy timeout
+  rollback:
+    enabled: true
+    method: docker-compose
+    config:
+      file: docker-compose.yml
+
+# Alternative: Custom Docker deployment with build/push commands
+# deploy:
+#   method: custom
+#   config:
+#     commands:
+#       - name: docker-build
+#         run: "docker build -t myregistry.io/my-app:${COMMIT_SHA} ."
+#         workdir: "."
+#         timeout: 300s
+#         transport:
+#           type: local
+#       - name: docker-push
+#         run: "docker push myregistry.io/my-app:${COMMIT_SHA}"
+#         workdir: "."
+#         timeout: 180s
+#         transport:
+#           type: local
+#       - name: docker-deploy
+#         run: |
+#           docker pull myregistry.io/my-app:${COMMIT_SHA}
+#           docker stop my-app || true
+#           docker rm my-app || true
+#           docker run -d --name my-app -p 8080:8080 myregistry.io/my-app:${COMMIT_SHA}
+#         workdir: "."
+#         timeout: 120s
+#         transport:
+#           type: ssh
+#           host: staging.example.com
+#           port: 22
+#           user: deploy
+#           key_path: ~/.ssh/deploy_key
+#         env:
+#           DOCKER_REGISTRY: myregistry.io
+#   timeout: 600s
+
+# ─── Tests ───────────────────────────────────────────────────────────
+test:
+  - type: command
+    name: unit-tests
+    run: "docker compose exec -T app go test ./..."
+    timeout: 120s
+  - type: command
+    name: integration-tests
+    run: "docker compose exec -T app go test -tags=integration ./..."
+    timeout: 180s
+  - type: command
+    name: lint
+    run: "docker compose exec -T app go vet ./..."
+    timeout: 60s
+
+# ─── Workflow ────────────────────────────────────────────────────────
+workflow:
+  trigger:
+    - event: issue.opened
+      labels: ["auto", "rig"]           # only process issues with these labels
+    - event: issue.labeled
+      labels: ["rig"]
+      keyword: "[rig]"                   # or issues containing this keyword
+  steps: ["code", "deploy", "test", "report"]
+  approval:
+    before_deploy: false                 # set true for production safety
+
+# ─── Notifications ───────────────────────────────────────────────────
+notify:
+  - type: comment                        # post status as GitHub issue comment
+    on: ["all"]                          # deploy | test_fail | test_pass | pr_created | all
+
+# ─── Webhook Server ─────────────────────────────────────────────────
+server:
+  port: 8080
+  secret: ${WEBHOOK_SECRET}              # GitHub webhook secret for signature verification

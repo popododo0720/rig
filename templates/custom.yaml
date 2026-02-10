@@ -1,0 +1,137 @@
+# Rig Configuration Template — Custom Deploy
+# This template demonstrates custom deployment using local and SSH commands.
+# Copy this file as rig.yaml and customize for your project.
+
+# ─── Project Metadata ────────────────────────────────────────────────
+project:
+  name: my-web-app
+  language: go
+  description: "Production web application with REST API and background workers"
+
+# ─── Source Code Repository ──────────────────────────────────────────
+source:
+  platform: github            # github | gitlab | bitbucket | gitea
+  repo: acme-corp/my-web-app  # owner/repo format
+  base_branch: main           # branch to open PRs against
+  token: ${GITHUB_TOKEN}      # GitHub personal access token (repo scope)
+
+# ─── AI Provider ─────────────────────────────────────────────────────
+ai:
+  provider: anthropic                    # anthropic | openai | ollama
+  model: claude-sonnet-4-20250514        # model identifier
+  api_key: ${ANTHROPIC_API_KEY}          # API key (keep in env, never commit)
+  max_retry: 3                           # max self-fix attempts (1–10)
+  context:                               # project-specific context for the AI
+    - "Go 1.22 web application using net/http and sqlx"
+    - "PostgreSQL database with migrations in db/migrations/"
+    - "REST API follows JSON:API spec"
+    - "Tests use standard testing package with testify assertions"
+    - "CI runs: go vet, go test ./..., golangci-lint"
+
+# ─── Deployment ──────────────────────────────────────────────────────
+# Custom deployment method allows you to define arbitrary commands.
+# Each command can run locally or via SSH on a remote server.
+deploy:
+  method: custom                         # custom | docker-compose | terraform | ansible | k8s
+  config:
+    commands:
+      # Example 1: Local build command
+      - name: build
+        run: "go build -o bin/server ./cmd/server"
+        workdir: "."
+        timeout: 120s
+        retry: 1
+        transport:
+          type: local                    # runs on the local machine
+
+      # Example 2: Local test before deploy
+      - name: test-build
+        run: "go vet ./..."
+        workdir: "."
+        timeout: 60s
+        transport:
+          type: local
+
+      # Example 3: SSH deploy to staging server
+      - name: deploy-staging
+        run: |
+          systemctl stop my-app
+          cp /tmp/server /opt/my-app/server
+          systemctl start my-app
+        workdir: "/opt/my-app"
+        timeout: 300s
+        retry: 2
+        transport:
+          type: ssh
+          host: staging.example.com
+          port: 22
+          user: deploy
+          key_path: ~/.ssh/deploy_key    # or use key_data: ${SSH_PRIVATE_KEY}
+        env:
+          DEPLOY_ENV: staging
+
+      # Example 4: SSH health check
+      - name: health-check
+        run: "curl -f http://localhost:8080/health || exit 1"
+        workdir: "."
+        timeout: 30s
+        retry: 3
+        transport:
+          type: ssh
+          host: staging.example.com
+          port: 22
+          user: deploy
+          key_path: ~/.ssh/deploy_key
+
+  timeout: 600s                          # overall deploy timeout
+  rollback:
+    enabled: true
+    method: custom
+    config:
+      commands:
+        - name: rollback-staging
+          run: |
+            systemctl stop my-app
+            cp /opt/my-app/server.backup /opt/my-app/server
+            systemctl start my-app
+          workdir: "/opt/my-app"
+          timeout: 120s
+          transport:
+            type: ssh
+            host: staging.example.com
+            port: 22
+            user: deploy
+            key_path: ~/.ssh/deploy_key
+
+# ─── Tests ───────────────────────────────────────────────────────────
+test:
+  - type: command
+    name: unit-tests
+    run: "go test ./..."
+    timeout: 120s
+  - type: command
+    name: lint
+    run: "go vet ./..."
+    timeout: 60s
+
+# ─── Workflow ────────────────────────────────────────────────────────
+workflow:
+  trigger:
+    - event: issue.opened
+      labels: ["auto", "rig"]           # only process issues with these labels
+    - event: issue.labeled
+      labels: ["rig"]
+      keyword: "[rig]"                   # or issues containing this keyword
+  steps: ["code", "deploy", "test", "report"]
+  approval:
+    before_deploy: false                 # set true for production safety
+
+# ─── Notifications ───────────────────────────────────────────────────
+notify:
+  - type: comment                        # post status as GitHub issue comment
+    on: ["all"]                          # deploy | test_fail | test_pass | pr_created | all
+
+# ─── Webhook Server ─────────────────────────────────────────────────
+server:
+  port: 8080
+  secret: ${WEBHOOK_SECRET}              # GitHub webhook secret for signature verification

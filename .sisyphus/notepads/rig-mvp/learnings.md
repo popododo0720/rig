@@ -86,3 +86,76 @@
 - **E2E fixtures**: 4 YAML files in testdata/e2e/ — happy_path.yaml, retry_path.yaml, max_retry.yaml, invalid_config.yaml. The invalid_config.yaml is used by TestE2EConfigInvalid to verify LoadConfig rejects bad configs.
 - **TestE2EConfigInvalid uses both approaches**: table-driven config.Validate() tests for specific validation rules + LoadConfig() on the invalid fixture file.
 - **All verification passes**: `go test ./internal/core/... -run TestE2E -v` all 7 tests PASS, `rig validate --config rig.yaml.example` exits 0, `go test ./...` full suite (9 packages) all PASS, `go build ./cmd/rig` clean, `go vet ./...` clean.
+
+## [2026-02-10 10:53] Task 11: Documentation + Templates + Dockerfile
+
+**Files Created**:
+- `README.md` — Comprehensive documentation with quick start, architecture, CLI reference, examples
+- `templates/custom.yaml` — Template for custom deploy with local/SSH commands
+- `templates/docker.yaml` — Template for Docker-based deploy with docker-compose
+- `Dockerfile` — Multi-stage build (golang:1.25-alpine → distroless/static-debian12:nonroot)
+- `Makefile` — Complete with build, test, lint, docker-build, install, help targets
+- `LICENSE` — MIT license
+
+**Makefile Targets**:
+- `build` — Build rig binary
+- `test` — Run all tests (without -race on Windows)
+- `vet` — Run go vet
+- `lint` — Run linting checks
+- `clean` — Remove build artifacts
+- `install` — Install binary to $GOPATH/bin
+- `docker-build` — Build Docker image
+- `docker-push` — Push Docker image to registry
+- `help` — Show available targets
+
+**Dockerfile Details**:
+- Stage 1: golang:1.25-alpine builder with CGO_ENABLED=0 for static binary
+- Stage 2: gcr.io/distroless/static-debian12:nonroot for minimal runtime
+- Non-root user (UID 65532)
+- Binary-only image (~10MB final size)
+- Exposes port 8080
+- Default CMD: ["run"]
+
+**Templates**:
+- `custom.yaml` — Demonstrates local and SSH transport with custom commands
+- `docker.yaml` — Demonstrates docker-compose deployment method
+- Both templates include comprehensive comments explaining each field
+
+**README.md Sections**:
+- Project overview and key features
+- Quick start (5-minute setup)
+- Installation (binary, source, Docker)
+- Configuration guide with full rig.yaml structure
+- CLI command reference (init, validate, exec, run, status, logs, doctor)
+- Architecture diagram (text-based state machine)
+- Example workflow from issue to PR
+- Development guide (build, test, project structure)
+- Contributing guidelines
+
+**Verification Results**:
+- ✅ `go build` → rig.exe created (9.7MB)
+- ✅ `go test ./...` → all tests pass (9 packages)
+- ✅ `go vet ./...` → no errors
+- ✅ `./rig.exe init --template custom` → creates rig.yaml
+- ✅ `./rig.exe init --template docker` → creates rig.yaml
+- ⚠️ Docker build not tested (Docker not available in environment)
+
+**Environment Notes**:
+- Windows environment — no `make` command, used direct `go build`
+- No Docker available for testing Dockerfile build
+- Makefile targets tested manually with equivalent go commands
+
+**Documentation Highlights**:
+- Clear 10-phase state machine diagram
+- Adapter architecture explanation
+- Real-world example workflow
+- Comprehensive CLI reference with all options
+- Development guide for contributors
+- Project structure overview
+
+**Next Steps** (for future tasks):
+- Set up GitHub Actions CI/CD (separate task)
+- Test Docker build in environment with Docker
+- Add badges to README after CI is set up
+- Consider adding docker-compose.yml example file
+

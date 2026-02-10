@@ -1,0 +1,52 @@
+project:
+  name: my-project
+  language: go
+  description: "My project description"
+
+source:
+  platform: github
+  repo: owner/repo
+  base_branch: main
+  token: ${GITHUB_TOKEN}
+
+ai:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  api_key: ${ANTHROPIC_API_KEY}
+  max_retry: 3
+  context:
+    - "Project context for AI"
+
+deploy:
+  method: docker-compose
+  config:
+    file: docker-compose.yml
+    env_file: .env
+  timeout: 300s
+  rollback:
+    enabled: true
+    method: docker-compose
+    config:
+      file: docker-compose.yml
+
+test:
+  - type: command
+    name: unit-test
+    run: "docker compose exec app make test"
+    timeout: 120s
+
+workflow:
+  trigger:
+    - event: issues.opened
+      labels: ["rig"]
+  steps: ["code", "deploy", "test", "report"]
+  approval:
+    before_deploy: false
+
+notify:
+  - type: comment
+    on: ["all"]
+
+server:
+  port: 8080
+  secret: ${WEBHOOK_SECRET}
