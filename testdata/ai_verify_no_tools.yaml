@@ -1,0 +1,28 @@
+project:
+  name: test-app
+  language: go
+
+source:
+  platform: github
+  repo: test/repo
+
+ai:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  max_retry: 3
+
+deploy:
+  method: custom
+  config:
+    commands:
+      - name: build
+        run: "echo building"
+        transport:
+          type: local
+  timeout: 300s
+
+test:
+  - type: ai-verify
+    name: check-api
+    prompt: "Verify the API responds correctly"
+    timeout: 120s

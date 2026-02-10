@@ -1,0 +1,18 @@
+project:
+  name: test-app
+  language: go
+
+source:
+  platform: github
+  repo: test/repo
+
+ai:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  max_retry: 3
+
+deploy:
+  method: ansible
+  config:
+    playbook: site.yml
+  timeout: 300s
