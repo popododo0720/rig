@@ -1,275 +1,166 @@
 # Rig — AI Dev Agent Orchestrator
 
-**Rig** is an AI-powered development agent that automates the full software delivery cycle: from GitHub issue to pull request. It analyzes issues, generates code, deploys changes, runs tests, and creates PRs—all autonomously with self-healing retry logic.
+GitHub 이슈를 받아 AI가 코드를 생성하고, 배포하고, 테스트하고, PR을 만드는 자동화 에이전트.
+실패하면 스스로 분석해서 고치고 다시 시도합니다.
 
-## Key Features
+## 핵심 기능
 
-- **🤖 Autonomous Issue-to-PR Workflow**: Automatically processes GitHub issues labeled with `rig` and creates pull requests with working code
-- **🔄 Self-Healing AI**: Analyzes test failures and automatically retries with fixes (configurable max retry)
-- **🚀 Flexible Deployment**: Supports custom commands, Docker Compose, SSH, and more
-- **🧪 Integrated Testing**: Runs tests after deployment and uses results to improve code quality
-- **📊 State Machine Architecture**: Robust 10-phase execution cycle with rollback support
-- **🔌 Webhook Server**: Listens for GitHub webhooks to trigger workflows automatically
-- **🛠️ CLI Tools**: Validate configs, check status, view logs, and run diagnostics
+- **이슈 → PR 자동화**: `rig` 라벨이 붙은 이슈를 자동 처리
+- **셀프 힐링**: 테스트 실패 시 AI가 분석 후 재시도 (최대 10회)
+- **유연한 배포**: 로컬 커맨드, SSH 원격 실행, Docker Compose 지원
+- **상태 머신**: 10단계 실행 사이클 + 롤백
+- **웹훅 서버**: GitHub 이벤트 수신 → 자동 트리거
 
-## Quick Start
+## 빠른 시작
 
-Get Rig running in 5 minutes:
-
-### 1. Install
-
-```bash
-# Download binary (replace with your platform)
-curl -L https://github.com/rigdev/rig/releases/latest/download/rig-linux-amd64 -o rig
-chmod +x rig
-sudo mv rig /usr/local/bin/
-
-# Or build from source
-git clone https://github.com/rigdev/rig.git
-cd rig
-make build
-sudo make install
-```
-
-### 2. Initialize Configuration
-
-```bash
-# Create rig.yaml from template
-rig init --template custom
-
-# Or use Docker template
-rig init --template docker
-```
-
-### 3. Configure Environment Variables
-
-```bash
-# Set required environment variables
-export GITHUB_TOKEN="ghp_your_github_token"
-export ANTHROPIC_API_KEY="sk-ant-your_api_key"
-export WEBHOOK_SECRET="your_webhook_secret"
-```
-
-### 4. Validate Configuration
-
-```bash
-# Check configuration is valid
-rig validate
-
-# Run system diagnostics
-rig doctor
-```
-
-### 5. Start Webhook Server
-
-```bash
-# Start server to listen for GitHub webhooks
-rig run
-
-# Or execute a specific issue manually
-rig exec --issue 123
-```
-
-### 6. Configure GitHub Webhook
-
-1. Go to your repository settings → Webhooks → Add webhook
-2. Set Payload URL: `http://your-server:8080/webhook`
-3. Set Content type: `application/json`
-4. Set Secret: (same as `WEBHOOK_SECRET` env var)
-5. Select events: `Issues`
-6. Save webhook
-
-### 7. Create an Issue
-
-Create a GitHub issue with the `rig` label:
-
-```
-Title: Add health check endpoint
-
-Body:
-Add a /health endpoint that returns 200 OK with JSON status.
-```
-
-Rig will automatically:
-1. Analyze the issue
-2. Generate code changes
-3. Create a branch and commit
-4. Deploy the changes
-5. Run tests
-6. Create a pull request
-
-## Installation
-
-### Binary Releases
-
-Download pre-built binaries from the [releases page](https://github.com/rigdev/rig/releases):
-
-```bash
-# Linux
-curl -L https://github.com/rigdev/rig/releases/latest/download/rig-linux-amd64 -o rig
-chmod +x rig
-sudo mv rig /usr/local/bin/
-
-# macOS
-curl -L https://github.com/rigdev/rig/releases/latest/download/rig-darwin-amd64 -o rig
-chmod +x rig
-sudo mv rig /usr/local/bin/
-
-# Windows
-# Download rig-windows-amd64.exe and add to PATH
-```
-
-### Build from Source
+### 1. 빌드
 
 ```bash
 git clone https://github.com/rigdev/rig.git
 cd rig
+go build -o rig ./cmd/rig
+
+# 또는
 make build
-sudo make install
 ```
 
-### Docker
+### 2. 초기 설정
 
 ```bash
-docker pull rigdev/rig:latest
+# rig.yaml 템플릿 생성
+./rig init
 
-# Run with config mounted
-docker run -v $(pwd)/rig.yaml:/rig.yaml rigdev/rig:latest validate
+# Docker Compose 템플릿
+./rig init --template docker
 ```
 
-## Configuration Guide
+### 3. 환경 변수
 
-Rig uses a `rig.yaml` configuration file. Generate a template with `rig init`.
+```bash
+export GITHUB_TOKEN="ghp_xxx"           # GitHub Personal Access Token (repo 권한)
+export ANTHROPIC_API_KEY="sk-ant-xxx"   # Anthropic API 키
+export WEBHOOK_SECRET="your_secret"     # 웹훅 시그니처 검증용 (선택)
+```
 
-### Configuration Structure
+### 4. 설정 검증
+
+```bash
+./rig validate -c rig.yaml
+./rig doctor
+```
+
+### 5. 실행
+
+```bash
+# 특정 이슈 수동 실행 (GitHub issue URL)
+./rig exec https://github.com/owner/repo/issues/42
+
+# dry-run (실제 실행 없이 검증만)
+./rig exec https://github.com/owner/repo/issues/42 --dry-run
+
+# 웹훅 서버 시작 (자동 트리거)
+./rig run
+
+# 포트 오버라이드
+./rig run --port 9000
+```
+
+### 6. 상태 확인
+
+```bash
+./rig status             # 모든 태스크 조회
+./rig logs <task-id>     # 특정 태스크 상세 로그
+```
+
+---
+
+## 설정 (`rig.yaml`)
+
+### 최소 설정
 
 ```yaml
-# Project metadata
 project:
-  name: my-web-app
+  name: my-app
   language: go
-  description: "Production web application"
 
-# Source code repository
 source:
-  platform: github            # github | gitlab | bitbucket | gitea
-  repo: owner/repo            # owner/repo format
-  base_branch: main           # branch to open PRs against
-  token: ${GITHUB_TOKEN}      # GitHub personal access token
-
-# AI provider
-ai:
-  provider: anthropic                    # anthropic | openai | ollama
-  model: claude-sonnet-4-20250514        # model identifier
-  api_key: ${ANTHROPIC_API_KEY}          # API key
-  max_retry: 3                           # max self-fix attempts (1–10)
-  context:                               # project-specific context
-    - "Go 1.22 web application"
-    - "PostgreSQL database"
-    - "REST API follows JSON:API spec"
-
-# Deployment configuration
-deploy:
-  method: custom                         # custom | docker-compose | terraform | ansible | k8s
-  config:
-    commands:
-      - name: build
-        run: "go build -o bin/server ./cmd/server"
-        workdir: "."
-        timeout: 120s
-        transport:
-          type: local                    # local | ssh
-  timeout: 600s
-  rollback:
-    enabled: true
-    method: custom
-    config:
-      commands:
-        - name: rollback
-          run: "echo 'Rolling back...'"
-
-# Tests
-test:
-  - type: command
-    name: unit-tests
-    run: "go test ./..."
-    timeout: 120s
-
-# Workflow triggers
-workflow:
-  trigger:
-    - event: issue.opened
-      labels: ["rig"]                    # only process issues with these labels
-  steps: ["code", "deploy", "test", "report"]
-  approval:
-    before_deploy: false                 # set true for production safety
-
-# Notifications
-notify:
-  - type: comment                        # post status as GitHub issue comment
-    on: ["all"]                          # deploy | test_fail | test_pass | pr_created | all
-
-# Webhook server
-server:
-  port: 8080
-  secret: ${WEBHOOK_SECRET}              # GitHub webhook secret
-```
-
-### Environment Variables
-
-Rig resolves environment variables using `${VAR_NAME}` syntax:
-
-```yaml
-source:
+  platform: github
+  repo: owner/repo
+  base_branch: main
   token: ${GITHUB_TOKEN}
 
 ai:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
   api_key: ${ANTHROPIC_API_KEY}
+  max_retry: 3
 
-server:
-  secret: ${WEBHOOK_SECRET}
-```
-
-Set these in your shell or `.env` file:
-
-```bash
-export GITHUB_TOKEN="ghp_your_token"
-export ANTHROPIC_API_KEY="sk-ant-your_key"
-export WEBHOOK_SECRET="your_secret"
-```
-
-### Deployment Methods
-
-#### Custom Commands
-
-Run arbitrary commands locally or via SSH:
-
-```yaml
 deploy:
   method: custom
   config:
     commands:
       - name: build
         run: "make build"
-        workdir: "."
         timeout: 120s
         transport:
           type: local
-      - name: deploy-staging
+
+test:
+  - type: command
+    name: unit-test
+    run: "make test"
+    timeout: 120s
+
+workflow:
+  trigger:
+    - event: issues.opened
+      labels: ["rig"]
+
+server:
+  port: 8080
+  secret: ${WEBHOOK_SECRET}
+```
+
+### SSH 원격 배포
+
+```yaml
+deploy:
+  method: custom
+  config:
+    commands:
+      - name: build-local
+        run: "go build -o bin/server ./cmd/server"
+        timeout: 120s
+        transport:
+          type: local
+
+      - name: deploy-remote
         run: "systemctl restart my-app"
-        workdir: "/opt/my-app"
         timeout: 300s
         transport:
           type: ssh
-          host: staging.example.com
-          port: 22
-          user: deploy
-          key_path: ~/.ssh/deploy_key
+          ssh:
+            host: 192.168.1.100
+            port: 22
+            user: deploy
+            key: ~/.ssh/deploy_key
+
+  rollback:
+    enabled: true
+    method: custom
+    config:
+      commands:
+        - name: rollback
+          run: "systemctl restart my-app --rollback"
+          transport:
+            type: ssh
+            ssh:
+              host: 192.168.1.100
+              user: deploy
+              key: ~/.ssh/deploy_key
 ```
 
-#### Docker Compose
-
-Deploy using docker-compose:
+### Docker Compose 배포
 
 ```yaml
 deploy:
@@ -277,396 +168,208 @@ deploy:
   config:
     file: docker-compose.yml
     env_file: .env
-    services: ["app", "db"]
 ```
 
-## CLI Command Reference
+### 내장 변수
 
-### `rig init`
+배포/테스트 커맨드에서 `${VAR}` 문법으로 사용 가능:
 
-Generate a `rig.yaml` configuration template.
+| 변수 | 설명 |
+|------|------|
+| `${BRANCH_NAME}` | 자동 생성된 브랜치명 |
+| `${COMMIT_SHA}` | 커밋 해시 |
+| `${ISSUE_ID}` | 이슈 번호 |
+| `${ISSUE_TITLE}` | 이슈 제목 |
+| `${REPO_OWNER}` | 레포 소유자 |
+| `${REPO_NAME}` | 레포 이름 |
 
-```bash
-# Create custom template (default)
-rig init
+환경 변수도 동일 문법으로 참조: `${GITHUB_TOKEN}`, `${ANTHROPIC_API_KEY}` 등.
 
-# Create Docker template
-rig init --template docker
+### 워크플로우 트리거
+
+```yaml
+workflow:
+  trigger:
+    - event: issues.opened
+      labels: ["rig"]              # 이 라벨이 있는 이슈만 처리
+    - event: issues.labeled
+      labels: ["rig"]
+    - event: issue_comment.created
+      keyword: "[rig]"             # 코멘트에 키워드가 있으면 트리거
+  steps: ["code", "deploy", "test", "report"]
+  approval:
+    before_deploy: false           # true면 배포 전 승인 필요
 ```
 
-**Options:**
-- `--template <name>`: Template to use (`custom` or `docker`)
+### 알림
 
-### `rig validate`
-
-Validate the `rig.yaml` configuration file.
-
-```bash
-rig validate
-
-# Validate specific file
-rig validate --config /path/to/rig.yaml
+```yaml
+notify:
+  - type: comment                  # GitHub 이슈에 코멘트
+    on: ["all"]                    # deploy | test_fail | test_pass | pr_created | all
 ```
-
-**Options:**
-- `--config <path>`: Path to config file (default: `./rig.yaml`)
-
-### `rig exec`
-
-Execute workflow for a specific GitHub issue.
-
-```bash
-# Execute issue #123
-rig exec --issue 123
-
-# Dry-run mode (no state mutation)
-rig exec --issue 123 --dry-run
-```
-
-**Options:**
-- `--issue <number>`: GitHub issue number (required)
-- `--dry-run`: Dry-run mode (no state mutation)
-- `--config <path>`: Path to config file (default: `./rig.yaml`)
-
-### `rig run`
-
-Start the webhook server to listen for GitHub events.
-
-```bash
-# Start server on port 8080 (from config)
-rig run
-
-# Override port
-rig run --port 9000
-```
-
-**Options:**
-- `--port <number>`: Override server port from config
-- `--config <path>`: Path to config file (default: `./rig.yaml`)
-
-### `rig status`
-
-Show status of all tasks.
-
-```bash
-# Show all tasks
-rig status
-
-# Show specific task
-rig status --task task-123
-```
-
-**Options:**
-- `--task <id>`: Show specific task ID
-- `--state <path>`: Path to state file (default: `./.rig-state.json`)
-
-### `rig logs`
-
-Show logs for a specific task.
-
-```bash
-# Show logs for task-123
-rig logs --task task-123
-
-# Follow logs (tail -f style)
-rig logs --task task-123 --follow
-```
-
-**Options:**
-- `--task <id>`: Task ID (required)
-- `--follow`: Follow logs in real-time
-- `--state <path>`: Path to state file (default: `./.rig-state.json`)
-
-### `rig doctor`
-
-Run system diagnostics to check configuration and dependencies.
-
-```bash
-rig doctor
-```
-
-Checks:
-- Configuration file validity
-- Environment variables
-- GitHub API connectivity
-- AI provider API connectivity
-- Deployment method availability
-- Test runner availability
-
-## Architecture
-
-Rig uses a **state machine architecture** with adapters for extensibility.
-
-### 10-Phase Execution Cycle
-
-```
-┌─────────────┐
-│   queued    │  Issue received, task created
-└──────┬──────┘
-       │
-┌──────▼──────┐
-│  planning   │  AI analyzes issue, creates plan
-└──────┬──────┘
-       │
-┌──────▼──────┐
-│   coding    │  AI generates code changes
-└──────┬──────┘
-       │
-┌──────▼──────┐
-│ committing  │  Git creates branch, commits, pushes
-└──────┬──────┘
-       │
-┌──────▼──────┐
-│ deploying   │  Deploy adapter executes deployment
-└──────┬──────┘
-       │
-┌──────▼──────┐
-│  testing    │  Test runners execute tests
-└──────┬──────┘
-       │
-       ├─ PASS ──┐
-       │         │
-       │    ┌────▼────┐
-       │    │reporting│  Create pull request
-       │    └────┬────┘
-       │         │
-       │    ┌────▼────┐
-       │    │completed│  Success!
-       │    └─────────┘
-       │
-       └─ FAIL ──┐
-                 │
-            ┌────▼────┐
-            │  retry  │  AI analyzes failure, generates fix
-            └────┬────┘
-                 │
-                 ├─ Max retry not exceeded → back to coding
-                 │
-                 └─ Max retry exceeded ──┐
-                                         │
-                                    ┌────▼────┐
-                                    │rollback │  Rollback deployment
-                                    └────┬────┘
-                                         │
-                                    ┌────▼────┐
-                                    │ failed  │  Task failed
-                                    └─────────┘
-```
-
-### Adapter Architecture
-
-Rig uses **adapters** to decouple core logic from external systems:
-
-- **GitAdapter**: GitHub, GitLab, Bitbucket, Gitea
-- **AIAdapter**: Anthropic Claude, OpenAI, Ollama
-- **DeployAdapter**: Custom commands, Docker Compose, Terraform, Ansible, Kubernetes
-- **TestRunner**: Command-based tests
-- **Notifier**: GitHub comments, Slack, email
-
-### Core Components
-
-```
-cmd/rig/              # CLI entry point
-  ├── main.go         # Main CLI
-  ├── init.go         # rig init command
-  ├── validate.go     # rig validate command
-  ├── exec.go         # rig exec command
-  ├── run.go          # rig run command
-  ├── status.go       # rig status command
-  ├── logs.go         # rig logs command
-  └── doctor.go       # rig doctor command
-
-internal/
-  ├── config/         # Configuration loading and validation
-  ├── core/           # Core engine and state machine
-  │   ├── engine.go   # Main execution engine
-  │   ├── state.go    # State machine and persistence
-  │   └── steps.go    # Individual execution steps
-  ├── adapter/        # Adapter implementations
-  │   ├── git/        # Git adapters (GitHub, GitLab, etc.)
-  │   ├── ai/         # AI adapters (Anthropic, OpenAI, etc.)
-  │   ├── deploy/     # Deploy adapters (custom, docker-compose, etc.)
-  │   ├── test/       # Test runners
-  │   └── notify/     # Notifiers
-  └── server/         # Webhook server
-      └── webhook.go  # GitHub webhook handler
-```
-
-## Example Workflow
-
-### 1. Create GitHub Issue
-
-```
-Title: Add user authentication endpoint
-
-Body:
-Add a POST /api/auth/login endpoint that:
-- Accepts email and password
-- Returns JWT token on success
-- Returns 401 on invalid credentials
-```
-
-### 2. Rig Processes Issue
-
-```
-[rig] Task task-abc123 → queued (issue: Add user authentication endpoint)
-[rig] Task task-abc123 → planning (issue: Add user authentication endpoint)
-[rig] Task task-abc123 → coding (issue: Add user authentication endpoint)
-[rig] Task task-abc123 → committing (issue: Add user authentication endpoint)
-[rig] Task task-abc123 → deploying (issue: Add user authentication endpoint)
-[rig] Task task-abc123 → testing (issue: Add user authentication endpoint)
-```
-
-### 3. Tests Pass → PR Created
-
-```
-[rig] Task task-abc123 → reporting (issue: Add user authentication endpoint)
-[rig] Task task-abc123 → completed (issue: Add user authentication endpoint)
-[rig] Task task-abc123 completed with PR https://github.com/owner/repo/pull/42
-```
-
-### 4. Review and Merge
-
-The PR includes:
-- Code changes
-- Commit message
-- Test results
-- Deployment logs
-
-## Development Guide
-
-### Prerequisites
-
-- Go 1.25 or later
-- Git
-- Docker (optional, for Docker builds)
-
-### Build
-
-```bash
-# Build binary
-make build
-
-# Run tests
-make test
-
-# Run linter
-make lint
-
-# Build Docker image
-make docker-build
-
-# Clean build artifacts
-make clean
-```
-
-### Project Structure
-
-```
-rig/
-├── cmd/rig/              # CLI commands
-├── internal/             # Internal packages
-│   ├── config/           # Configuration
-│   ├── core/             # Core engine
-│   ├── adapter/          # Adapters
-│   └── server/           # Webhook server
-├── templates/            # Init templates
-│   ├── custom.yaml       # Custom deploy template
-│   └── docker.yaml       # Docker deploy template
-├── Dockerfile            # Multi-stage Docker build
-├── Makefile              # Build automation
-├── go.mod                # Go module definition
-├── rig.yaml.example      # Example configuration
-├── LICENSE               # MIT license
-└── README.md             # This file
-```
-
-### Adding a New Adapter
-
-1. Define the interface in `internal/core/`
-2. Implement the adapter in `internal/adapter/<type>/`
-3. Register the adapter in the factory
-4. Add configuration schema to `internal/config/`
-5. Add tests
-
-Example: Adding a new AI provider
-
-```go
-// internal/core/ai.go
-type AIAdapter interface {
-    AnalyzeIssue(ctx context.Context, issue *AIIssue, projectCtx string) (*Plan, error)
-    GenerateCode(ctx context.Context, plan *Plan, feedback *Feedback) ([]FileChange, error)
-}
-
-// internal/adapter/ai/openai/openai.go
-type OpenAIAdapter struct {
-    apiKey string
-    model  string
-}
-
-func (a *OpenAIAdapter) AnalyzeIssue(ctx context.Context, issue *AIIssue, projectCtx string) (*Plan, error) {
-    // Implementation
-}
-```
-
-### Running Tests
-
-```bash
-# Run all tests
-make test
-
-# Run specific package tests
-go test ./internal/core/...
-
-# Run with coverage
-go test -cover ./...
-```
-
-### Debugging
-
-Enable debug logging:
-
-```bash
-export RIG_DEBUG=1
-rig run
-```
-
-## Contributing
-
-Contributions are welcome! Please follow these guidelines:
-
-1. **Fork the repository** and create a feature branch
-2. **Write tests** for new functionality
-3. **Run linter** with `make lint`
-4. **Update documentation** if needed
-5. **Submit a pull request** with a clear description
-
-### Code Style
-
-- Follow [Effective Go](https://golang.org/doc/effective_go.html)
-- Use `gofmt` for formatting
-- Write clear commit messages
-- Add comments for exported functions
-
-### Reporting Issues
-
-Please include:
-- Rig version (`rig --version`)
-- Operating system
-- Configuration file (sanitized)
-- Steps to reproduce
-- Expected vs actual behavior
-
-## License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## Support
-
-- **Documentation**: [https://github.com/rigdev/rig](https://github.com/rigdev/rig)
-- **Issues**: [https://github.com/rigdev/rig/issues](https://github.com/rigdev/rig/issues)
-- **Discussions**: [https://github.com/rigdev/rig/discussions](https://github.com/rigdev/rig/discussions)
 
 ---
 
-**Built with ❤️ by the Rig Dev team**
+## CLI 명령어
+
+| 명령어 | 설명 | 사용법 |
+|--------|------|--------|
+| `init` | 설정 템플릿 생성 | `rig init [--template docker]` |
+| `validate` | 설정 파일 검증 | `rig validate -c rig.yaml` |
+| `exec` | 이슈 수동 실행 | `rig exec <github-issue-url> [--dry-run] [-c config]` |
+| `run` | 웹훅 서버 시작 | `rig run [-p 9000] [-c config]` |
+| `status` | 태스크 상태 조회 | `rig status` |
+| `logs` | 태스크 로그 조회 | `rig logs <task-id>` |
+| `doctor` | 환경 진단 | `rig doctor` |
+| `version` | 버전 출력 | `rig version` |
+
+---
+
+## 실행 사이클
+
+```
+  이슈 수신
+      │
+      ▼
+  ┌─────────┐
+  │ queued   │
+  └────┬─────┘
+       ▼
+  ┌──────────┐
+  │ planning │  AI가 이슈 분석 → 계획 수립
+  └────┬──────┘
+       ▼
+  ┌─────────┐
+  │ coding  │  AI가 코드 생성
+  └────┬─────┘
+       ▼
+  ┌───────────┐
+  │committing │  브랜치 생성 → 커밋 → 푸시
+  └────┬───────┘
+       ▼
+  ┌───────────┐
+  │ deploying │  배포 어댑터 실행
+  └────┬───────┘
+       ▼
+  ┌──────────┐
+  │ testing  │  테스트 실행
+  └────┬──────┘
+       │
+       ├── 통과 → reporting → completed (PR 생성)
+       │
+       └── 실패 → AI 실패 분석 → 코드 수정 → 재배포 → 재테스트
+                   (max_retry회까지 반복)
+                   초과 → rollback → failed
+```
+
+---
+
+## GitHub 웹훅 연동
+
+1. 레포 Settings → Webhooks → Add webhook
+2. **Payload URL**: `http://your-server:8080/webhook`
+3. **Content type**: `application/json`
+4. **Secret**: `WEBHOOK_SECRET`와 동일
+5. **Events**: Issues 선택
+6. 이슈에 `rig` 라벨 → 자동 실행
+
+---
+
+## 프로젝트 구조
+
+```
+rig/
+├── cmd/rig/                  # CLI
+│   ├── main.go               # 루트 커맨드
+│   ├── exec.go               # exec (이슈 URL → 전체 사이클)
+│   ├── run.go                # run (웹훅 서버)
+│   ├── init.go               # init (템플릿 생성)
+│   ├── validate.go           # validate
+│   ├── status.go             # status
+│   ├── logs.go               # logs
+│   └── doctor.go             # doctor
+│
+├── internal/
+│   ├── config/               # 설정 로딩 + 검증
+│   ├── core/                 # 핵심 엔진
+│   │   ├── engine.go         # 10단계 오케스트레이터
+│   │   ├── workflow.go       # 어댑터 인터페이스 + 단계 함수
+│   │   ├── retry.go          # 셀프 힐링 재시도 루프
+│   │   └── state.go          # 상태 머신 + JSON 영속화
+│   ├── adapter/
+│   │   ├── ai/               # Anthropic 어댑터
+│   │   ├── git/              # GitHub API + Git CLI
+│   │   ├── deploy/           # 로컬/SSH 커맨드 실행
+│   │   ├── test/             # 테스트 러너
+│   │   └── notify/           # 알림 (이슈 코멘트)
+│   ├── variable/             # ${VAR} 변수 치환
+│   └── webhook/              # HTTP 서버 + 핸들러
+│
+├── templates/                # init 템플릿
+├── testdata/                 # 테스트 설정 파일
+├── rig.yaml.example          # 전체 옵션 예시
+├── Makefile
+├── Dockerfile
+└── go.mod
+```
+
+---
+
+## 어댑터 인터페이스
+
+모든 외부 연동은 `internal/core/workflow.go`에 정의된 인터페이스를 구현:
+
+```go
+type AIAdapter interface {
+    AnalyzeIssue(ctx, issue, projectContext) (*AIPlan, error)
+    GenerateCode(ctx, plan, repoFiles)       ([]AIFileChange, error)
+    AnalyzeFailure(ctx, logs, currentCode)   ([]AIFileChange, error)
+}
+
+type GitAdapter interface {
+    CreateBranch(ctx, branchName)                       error
+    CommitAndPush(ctx, changes, message)                error
+    CreatePR(ctx, base, head, title, body) (*GitPullRequest, error)
+}
+
+type DeployAdapterIface interface {
+    Deploy(ctx, vars)  (*AdapterDeployResult, error)
+    Rollback(ctx)      error
+}
+
+type TestRunnerIface interface {
+    Run(ctx, vars) (*TestResult, error)
+}
+```
+
+새 어댑터 추가:
+1. `internal/core/workflow.go`에 인터페이스 확인
+2. `internal/adapter/<type>/`에 구현
+3. `var _ core.XxxIface = (*MyAdapter)(nil)` 컴파일타임 체크 추가
+4. `cmd/rig/exec.go`의 `buildEngineForIssue()`에 와이어링
+
+---
+
+## 개발
+
+```bash
+# 빌드
+go build -o rig ./cmd/rig
+
+# 전체 테스트
+go test ./... -timeout 120s
+
+# 커버리지
+go test -cover ./...
+
+# SSH 통합 테스트 (실제 서버 필요)
+go test -tags integration -run TestE2E -v ./internal/adapter/deploy/
+
+# 포맷 체크
+gofmt -l .
+```
+
+## 라이선스
+
+MIT — [LICENSE](LICENSE) 참조
