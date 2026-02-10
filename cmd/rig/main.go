@@ -56,6 +56,9 @@ func main() {
 	runCmd.Flags().StringP("config", "c", "", "Path to config file")
 	runCmd.Flags().IntP("port", "p", 0, "Override server port")
 
+	webCmd.Flags().StringP("config", "c", "", "Path to config file")
+	webCmd.Flags().Int("port", 3000, "Dashboard server port")
+
 	initCmd.Flags().String("template", "custom", "Template type (custom|docker)")
 
 	logsCmd.Flags().BoolP("follow", "f", false, "Follow logs (not yet implemented)")
@@ -69,6 +72,7 @@ func main() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(logsCmd)
 	rootCmd.AddCommand(doctorCmd)
+	rootCmd.AddCommand(webCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

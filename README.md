@@ -38,7 +38,12 @@ make build
 
 ```bash
 export GITHUB_TOKEN="ghp_xxx"           # GitHub Personal Access Token (repo 권한)
+
+# AI Provider (택 1)
 export ANTHROPIC_API_KEY="sk-ant-xxx"   # Anthropic API 키
+export OPENAI_API_KEY="sk-xxx"          # OpenAI API 키
+# Ollama는 API 키 불필요 (로컬 실행)
+
 export WEBHOOK_SECRET="your_secret"     # 웹훅 시그니처 검증용 (선택)
 ```
 
@@ -90,7 +95,7 @@ source:
   token: ${GITHUB_TOKEN}
 
 ai:
-  provider: anthropic
+  provider: anthropic           # anthropic | openai | ollama
   model: claude-sonnet-4-20250514
   api_key: ${ANTHROPIC_API_KEY}
   max_retry: 3
@@ -120,6 +125,38 @@ server:
   port: 8080
   secret: ${WEBHOOK_SECRET}
 ```
+
+### AI Provider 설정
+
+**Anthropic (Claude)**
+```yaml
+ai:
+  provider: anthropic
+  model: claude-sonnet-4-20250514     # 또는 claude-3-5-sonnet-20241022
+  api_key: ${ANTHROPIC_API_KEY}
+  max_retry: 3
+```
+
+**OpenAI (GPT)**
+```yaml
+ai:
+  provider: openai
+  model: gpt-4o                       # 또는 gpt-4o-mini, gpt-4-turbo
+  api_key: ${OPENAI_API_KEY}
+  max_retry: 3
+```
+
+**Ollama (로컬 LLM)**
+```yaml
+ai:
+  provider: ollama
+  model: llama3.1                     # 필수 — Ollama에 설치된 모델명
+  # api_key: (선택, 기본값 없음)
+  max_retry: 3
+```
+
+> Ollama는 기본적으로 `http://localhost:11434`에서 실행됩니다.
+> 다른 호스트를 사용하려면 환경 변수 설정: `export OLLAMA_API_ENDPOINT="http://remote:11434/v1/chat/completions"`
 
 ### SSH 원격 배포
 
@@ -221,6 +258,7 @@ notify:
 | `run` | 웹훅 서버 시작 | `rig run [-p 9000] [-c config]` |
 | `status` | 태스크 상태 조회 | `rig status` |
 | `logs` | 태스크 로그 조회 | `rig logs <task-id>` |
+| `web` | 웹 대시보드 시작 | `rig web [-p 3000] [-c config]` |
 | `doctor` | 환경 진단 | `rig doctor` |
 | `version` | 버전 출력 | `rig version` |
 
@@ -288,7 +326,8 @@ rig/
 │   ├── validate.go           # validate
 │   ├── status.go             # status
 │   ├── logs.go               # logs
-│   └── doctor.go             # doctor
+│   ├── doctor.go             # doctor
+│   └── web.go                # web (대시보드 서버)
 │
 ├── internal/
 │   ├── config/               # 설정 로딩 + 검증
@@ -298,12 +337,15 @@ rig/
 │   │   ├── retry.go          # 셀프 힐링 재시도 루프
 │   │   └── state.go          # 상태 머신 + JSON 영속화
 │   ├── adapter/
-│   │   ├── ai/               # Anthropic 어댑터
+│   │   ├── ai/               # AI 어댑터 (Anthropic, OpenAI, Ollama)
 │   │   ├── git/              # GitHub API + Git CLI
 │   │   ├── deploy/           # 로컬/SSH 커맨드 실행
 │   │   ├── test/             # 테스트 러너
 │   │   └── notify/           # 알림 (이슈 코멘트)
 │   ├── variable/             # ${VAR} 변수 치환
+│   ├── web/                  # 웹 대시보드 (go:embed SPA)
+│   │   ├── handler.go        # API + 정적 파일 핸들러
+│   │   └── static/           # 내장 SPA (HTML/JS/CSS)
 │   └── webhook/              # HTTP 서버 + 핸들러
 │
 ├── templates/                # init 템플릿
@@ -348,6 +390,35 @@ type TestRunnerIface interface {
 2. `internal/adapter/<type>/`에 구현
 3. `var _ core.XxxIface = (*MyAdapter)(nil)` 컴파일타임 체크 추가
 4. `cmd/rig/exec.go`의 `buildEngineForIssue()`에 와이어링
+
+---
+
+## 웹 대시보드
+
+```bash
+# 대시보드 시작 (기본 포트 3000)
+./rig web
+
+# 포트 지정
+./rig web -p 8888
+
+# 브라우저에서 열기
+open http://localhost:3000
+```
+
+대시보드 기능:
+- 실시간 태스크 상태 모니터링 (SSE)
+- 태스크 상세: 시도 타임라인, 배포 결과, 테스트 결과
+- PR 링크 바로가기
+- 다크 테마
+
+API 엔드포인트:
+| 경로 | 설명 |
+|------|------|
+| `GET /api/tasks` | 전체 태스크 목록 |
+| `GET /api/tasks/{id}` | 태스크 상세 |
+| `GET /api/config` | 프로젝트 설정 (민감 정보 제외) |
+| `GET /api/events` | SSE 실시간 이벤트 스트림 |
 
 ---
 

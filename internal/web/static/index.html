@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rig Dashboard</title>
+<style>
+/* ═══════════════════════════════════════════════════════════
+   DESIGN SYSTEM — Ink & Ember
+   Dark editorial aesthetic with warm amber accents.
+   Typography: system monospace for data, geometric sans for UI.
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  /* Surface palette — deep charcoal with subtle warmth */
+  --surface-0: #0c0b0e;
+  --surface-1: #141318;
+  --surface-2: #1c1b22;
+  --surface-3: #25242c;
+  --surface-4: #302f38;
+
+  /* Text */
+  --text-primary: #e8e4df;
+  --text-secondary: #9b9592;
+  --text-muted: #5e5a57;
+  --text-inverse: #0c0b0e;
+
+  /* Accent — warm amber / ember */
+  --accent: #e8a44a;
+  --accent-dim: #c4883a;
+  --accent-glow: rgba(232, 164, 74, 0.12);
+  --accent-glow-strong: rgba(232, 164, 74, 0.25);
+
+  /* Status palette */
+  --status-queued: #5e5a57;
+  --status-active: #5b9ee9;
+  --status-deploying: #e2c84b;
+  --status-testing: #e09640;
+  --status-completed: #5cc989;
+  --status-failed: #e05c5c;
+  --status-rollback: #b07ce0;
+
+  /* Spacing scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  /* Radius */
+  --radius-s: 4px;
+  --radius-m: 8px;
+  --radius-l: 16px;
+
+  /* Transitions */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 300ms;
+  --duration-slow: 500ms;
+
+  /* Noise overlay (inline SVG data URI) */
+  --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  font-family: "SF Mono", "Cascadia Code", "JetBrains Mono", "Fira Code", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* Noise texture overlay on body */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: var(--noise);
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ─── LAYOUT ─── */
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  grid-template-columns: 240px 1fr;
+  height: 100vh;
+}
+
+/* ─── TOP BAR ─── */
+.topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) var(--sp-5);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--surface-3);
+  z-index: 10;
+}
+
+.topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.topbar__logo {
+  width: 28px;
+  height: 28px;
+  background: var(--accent);
+  border-radius: var(--radius-s);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-inverse);
+  letter-spacing: -0.5px;
+}
+
+.topbar__title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  color: var(--text-primary);
+}
+
+.topbar__project {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: var(--sp-2);
+  padding-left: var(--sp-3);
+  border-left: 1px solid var(--surface-4);
+}
+
+.topbar__status {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-failed);
+  transition: background var(--duration-normal) var(--ease-out);
+}
+
+.status-dot--connected {
+  background: var(--status-completed);
+  box-shadow: 0 0 8px rgba(92, 201, 137, 0.5);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ─── SIDEBAR ─── */
+.sidebar {
+  background: var(--surface-1);
+  border-right: 1px solid var(--surface-3);
+  padding: var(--sp-5) var(--sp-4);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.sidebar__section-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-3);
+}
+
+.stat-card {
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-m);
+  padding: var(--sp-4);
+  transition: border-color var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
+}
+
+.stat-card:hover {
+  border-color: var(--surface-4);
+  background: var(--surface-3);
+}
+
+.stat-card__value {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -1px;
+  line-height: 1;
+  margin-bottom: var(--sp-1);
+}
+
+.stat-card__label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stat-card--total .stat-card__value { color: var(--text-primary); }
+.stat-card--active .stat-card__value { color: var(--status-active); }
+.stat-card--completed .stat-card__value { color: var(--status-completed); }
+.stat-card--failed .stat-card__value { color: var(--status-failed); }
+
+.sidebar__config {
+  margin-top: auto;
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--surface-3);
+}
+
+.config-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--sp-1) 0;
+  font-size: 11px;
+}
+
+.config-row__key {
+  color: var(--text-muted);
+}
+
+.config-row__val {
+  color: var(--text-secondary);
+  text-align: right;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── MAIN AREA ─── */
+.main {
+  overflow-y: auto;
+  padding: var(--sp-5);
+  background: var(--surface-0);
+}
+
+.main__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-5);
+}
+
+.main__title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--text-muted);
+}
+
+.main__updated {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ─── TASK TABLE ─── */
+.task-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.task-table th {
+  text-align: left;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--surface-3);
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+  background: var(--surface-0);
+  z-index: 2;
+}
+
+.task-row {
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.task-row:hover {
+  background: var(--surface-2);
+}
+
+.task-row--expanded {
+  background: var(--surface-1);
+}
+
+.task-row td {
+  padding: var(--sp-3);
+  border-bottom: 1px solid var(--surface-2);
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.task-row__id {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.task-row__title {
+  color: var(--text-primary);
+  font-weight: 500;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-row__branch {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.task-row__time {
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* ─── STATUS BADGE ─── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px 10px;
+  border-radius: 100px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  white-space: nowrap;
+  transition: transform var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.badge--queued    { background: rgba(94,90,87,0.2);   color: #9b9592; }
+.badge--queued::before { background: var(--status-queued); }
+
+.badge--planning,
+.badge--coding,
+.badge--committing,
+.badge--approval  { background: rgba(91,158,233,0.15); color: #7db4f0; }
+.badge--planning::before,
+.badge--coding::before,
+.badge--committing::before,
+.badge--approval::before { background: var(--status-active); }
+
+.badge--deploying { background: rgba(226,200,75,0.15); color: #e2c84b; }
+.badge--deploying::before { background: var(--status-deploying); }
+
+.badge--testing,
+.badge--reporting { background: rgba(224,150,64,0.15); color: #e09640; }
+.badge--testing::before,
+.badge--reporting::before { background: var(--status-testing); }
+
+.badge--completed { background: rgba(92,201,137,0.15); color: #5cc989; }
+.badge--completed::before { background: var(--status-completed); }
+
+.badge--failed    { background: rgba(224,92,92,0.15);  color: #e05c5c; }
+.badge--failed::before { background: var(--status-failed); }
+
+.badge--rollback  { background: rgba(176,124,224,0.15); color: #b07ce0; }
+.badge--rollback::before { background: var(--status-rollback); }
+
+/* Active phase animation */
+.badge--planning::before,
+.badge--coding::before,
+.badge--committing::before,
+.badge--deploying::before,
+.badge--testing::before,
+.badge--reporting::before,
+.badge--approval::before {
+  animation: pulse-badge 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-badge {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* ─── DETAIL PANEL ─── */
+.detail-row {
+  display: none;
+}
+
+.detail-row--open {
+  display: table-row;
+}
+
+.detail-row td {
+  padding: 0;
+  border-bottom: 1px solid var(--surface-3);
+}
+
+.detail-panel {
+  background: var(--surface-1);
+  border-left: 3px solid var(--accent);
+  padding: var(--sp-5);
+  animation: slideDown var(--duration-normal) var(--ease-out);
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.detail-panel__section {
+  margin-bottom: var(--sp-5);
+}
+
+.detail-panel__section:last-child {
+  margin-bottom: 0;
+}
+
+.detail-panel__heading {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--accent);
+  margin-bottom: var(--sp-3);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.detail-panel__heading::before {
+  content: "";
+  display: block;
+  width: 12px;
+  height: 1px;
+  background: var(--accent-dim);
+}
+
+/* ─── ATTEMPTS TIMELINE ─── */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  position: relative;
+  padding-left: var(--sp-5);
+}
+
+.timeline::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: var(--surface-4);
+}
+
+.timeline__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  font-size: 12px;
+  position: relative;
+}
+
+.timeline__dot {
+  position: absolute;
+  left: -21px;
+  top: 5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--surface-4);
+  background: var(--surface-1);
+  flex-shrink: 0;
+  z-index: 1;
+}
+
+.timeline__dot--running { border-color: var(--status-active); background: var(--status-active); }
+.timeline__dot--passed  { border-color: var(--status-completed); background: var(--status-completed); }
+.timeline__dot--failed  { border-color: var(--status-failed); background: var(--status-failed); }
+
+.timeline__num {
+  color: var(--text-muted);
+  font-size: 10px;
+  min-width: 20px;
+}
+
+.timeline__body {
+  flex: 1;
+}
+
+.timeline__meta {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* ─── DEPLOY & TEST RESULTS ─── */
+.result-card {
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-m);
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-2);
+}
+
+.result-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+
+.result-card__name {
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.result-card__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.result-card__chevron {
+  transition: transform var(--duration-fast) var(--ease-out);
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.result-card__chevron--open {
+  transform: rotate(90deg);
+}
+
+.result-card__output {
+  display: none;
+  margin-top: var(--sp-3);
+}
+
+.result-card__output--open {
+  display: block;
+}
+
+.result-card__pre {
+  background: var(--surface-0);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-s);
+  padding: var(--sp-3);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* PR link */
+.pr-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 12px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius-s);
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.pr-link:hover {
+  background: var(--accent-glow);
+}
+
+/* ─── EMPTY STATE ─── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-8) var(--sp-5);
+  color: var(--text-muted);
+  text-align: center;
+  gap: var(--sp-3);
+}
+
+.empty-state__icon {
+  font-size: 48px;
+  opacity: 0.3;
+  line-height: 1;
+}
+
+.empty-state__text {
+  font-size: 13px;
+}
+
+/* ─── LOADING SKELETON ─── */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius-s);
+  height: 14px;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ─── STAGGER ENTRANCE ─── */
+.stagger-enter {
+  opacity: 0;
+  transform: translateY(6px);
+  animation: fadeUp var(--duration-normal) var(--ease-out) forwards;
+}
+
+@keyframes fadeUp {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── RESPONSIVE ─── */
+@media (max-width: 768px) {
+  .app {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    display: none;
+  }
+  .main {
+    padding: var(--sp-3);
+  }
+  .task-row__branch,
+  .task-table th:nth-child(5) {
+    display: none;
+  }
+  .task-row td:nth-child(5) {
+    display: none;
+  }
+}
+
+/* ─── SCROLLBAR ─── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--surface-4);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="topbar__brand">
+      <div class="topbar__logo">R</div>
+      <span class="topbar__title">Rig Dashboard</span>
+      <span class="topbar__project" id="project-name"></span>
+    </div>
+    <div class="topbar__status">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-label">Connecting</span>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div>
+      <div class="sidebar__section-label">Overview</div>
+      <div style="display:flex;flex-direction:column;gap:var(--sp-2);">
+        <div class="stat-card stat-card--total">
+          <div class="stat-card__value" id="stat-total">-</div>
+          <div class="stat-card__label">Total Tasks</div>
+        </div>
+        <div class="stat-card stat-card--active">
+          <div class="stat-card__value" id="stat-active">-</div>
+          <div class="stat-card__label">In Progress</div>
+        </div>
+        <div class="stat-card stat-card--completed">
+          <div class="stat-card__value" id="stat-completed">-</div>
+          <div class="stat-card__label">Completed</div>
+        </div>
+        <div class="stat-card stat-card--failed">
+          <div class="stat-card__value" id="stat-failed">-</div>
+          <div class="stat-card__label">Failed</div>
+        </div>
+      </div>
+    </div>
+    <div class="sidebar__config" id="config-info">
+      <div class="sidebar__section-label">Configuration</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main" id="main">
+    <div class="main__header">
+      <div class="main__title">Tasks</div>
+      <div class="main__updated" id="last-updated"></div>
+    </div>
+    <div id="task-container">
+      <div class="empty-state">
+        <div class="empty-state__icon">&gt;_</div>
+        <div class="empty-state__text">Loading tasks...</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+(function() {
+  "use strict";
+
+  // ── State ──
+  var tasks = [];
+  var expandedId = null;
+  var sseConnected = false;
+  var pollTimer = null;
+  var evtSource = null;
+
+  // ── DOM refs ──
+  var $container = document.getElementById("task-container");
+  var $total = document.getElementById("stat-total");
+  var $active = document.getElementById("stat-active");
+  var $completed = document.getElementById("stat-completed");
+  var $failed = document.getElementById("stat-failed");
+  var $dot = document.getElementById("status-dot");
+  var $statusLabel = document.getElementById("status-label");
+  var $lastUpdated = document.getElementById("last-updated");
+  var $projectName = document.getElementById("project-name");
+  var $configInfo = document.getElementById("config-info");
+
+  // ── Helpers ──
+  var activePhases = {
+    planning: true, coding: true, committing: true,
+    approval: true, deploying: true, testing: true, reporting: true
+  };
+
+  function escapeHTML(str) {
+    if (!str) return "";
+    var div = document.createElement("div");
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+  }
+
+  function formatDate(iso) {
+    if (!iso) return "-";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "-";
+    var pad = function(n) { return n < 10 ? "0" + n : n; };
+    return d.getFullYear() + "-" + pad(d.getMonth()+1) + "-" + pad(d.getDate()) +
+           " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+
+  function formatDuration(start, end) {
+    if (!start) return "-";
+    var s = new Date(start);
+    var e = end ? new Date(end) : new Date();
+    var diff = Math.max(0, e - s);
+    var secs = Math.floor(diff / 1000);
+    if (secs < 60) return secs + "s";
+    var mins = Math.floor(secs / 60);
+    secs = secs % 60;
+    if (mins < 60) return mins + "m " + secs + "s";
+    var hours = Math.floor(mins / 60);
+    mins = mins % 60;
+    return hours + "h " + mins + "m";
+  }
+
+  function formatNanoDuration(ns) {
+    if (!ns && ns !== 0) return "-";
+    var ms = ns / 1000000;
+    if (ms < 1000) return Math.round(ms) + "ms";
+    var s = ms / 1000;
+    if (s < 60) return s.toFixed(1) + "s";
+    var m = Math.floor(s / 60);
+    s = (s % 60).toFixed(0);
+    return m + "m " + s + "s";
+  }
+
+  function setConnected(connected) {
+    sseConnected = connected;
+    if (connected) {
+      $dot.className = "status-dot status-dot--connected";
+      $statusLabel.textContent = "Live";
+    } else {
+      $dot.className = "status-dot";
+      $statusLabel.textContent = "Reconnecting";
+    }
+  }
+
+  // ── Stats ──
+  function updateStats() {
+    var total = tasks.length;
+    var active = 0, completed = 0, failed = 0;
+    for (var i = 0; i < tasks.length; i++) {
+      var s = tasks[i].status;
+      if (s === "completed") completed++;
+      else if (s === "failed" || s === "rollback") failed++;
+      else if (activePhases[s]) active++;
+    }
+    $total.textContent = total;
+    $active.textContent = active;
+    $completed.textContent = completed;
+    $failed.textContent = failed;
+    $lastUpdated.textContent = "Updated " + new Date().toLocaleTimeString();
+  }
+
+  // ── Render tasks ──
+  function renderTasks() {
+    if (tasks.length === 0) {
+      $container.innerHTML =
+        '<div class="empty-state">' +
+          '<div class="empty-state__icon">&gt;_</div>' +
+          '<div class="empty-state__text">No tasks found. Waiting for issues...</div>' +
+        '</div>';
+      updateStats();
+      return;
+    }
+
+    // Sort: active first, then by created_at desc
+    var sorted = tasks.slice().sort(function(a, b) {
+      var aActive = activePhases[a.status] ? 0 : 1;
+      var bActive = activePhases[b.status] ? 0 : 1;
+      if (aActive !== bActive) return aActive - bActive;
+      return new Date(b.created_at) - new Date(a.created_at);
+    });
+
+    var html = '<table class="task-table"><thead><tr>' +
+      '<th>ID</th><th>Issue</th><th>Status</th><th>Branch</th><th>Created</th><th>Duration</th>' +
+      '</tr></thead><tbody>';
+
+    for (var i = 0; i < sorted.length; i++) {
+      var t = sorted[i];
+      var isExpanded = expandedId === t.id;
+      var delay = Math.min(i * 30, 300);
+
+      html += '<tr class="task-row stagger-enter' + (isExpanded ? ' task-row--expanded' : '') +
+              '" data-id="' + escapeHTML(t.id) + '" style="animation-delay:' + delay + 'ms">' +
+        '<td class="task-row__id">' + escapeHTML(t.id) + '</td>' +
+        '<td class="task-row__title">' + escapeHTML(t.issue ? t.issue.title : "-") + '</td>' +
+        '<td><span class="badge badge--' + escapeHTML(t.status) + '">' + escapeHTML(t.status) + '</span></td>' +
+        '<td class="task-row__branch">' + escapeHTML(t.branch || "-") + '</td>' +
+        '<td class="task-row__time">' + formatDate(t.created_at) + '</td>' +
+        '<td class="task-row__time">' + formatDuration(t.created_at, t.completed_at) + '</td>' +
+      '</tr>';
+
+      // Detail row
+      html += '<tr class="detail-row' + (isExpanded ? ' detail-row--open' : '') + '" data-detail="' + escapeHTML(t.id) + '">' +
+        '<td colspan="6">' + (isExpanded ? renderDetail(t) : '') + '</td></tr>';
+    }
+
+    html += '</tbody></table>';
+    $container.innerHTML = html;
+
+    // Bind click events
+    var rows = $container.querySelectorAll(".task-row");
+    for (var j = 0; j < rows.length; j++) {
+      rows[j].addEventListener("click", onRowClick);
+    }
+
+    updateStats();
+  }
+
+  function onRowClick(e) {
+    var id = e.currentTarget.getAttribute("data-id");
+    if (expandedId === id) {
+      expandedId = null;
+    } else {
+      expandedId = id;
+    }
+    renderTasks();
+  }
+
+  // ── Render detail panel ──
+  function renderDetail(task) {
+    var html = '<div class="detail-panel">';
+
+    // PR link
+    if (task.pr && task.pr.url) {
+      html += '<div class="detail-panel__section">' +
+        '<div class="detail-panel__heading">Pull Request</div>' +
+        '<a class="pr-link" href="' + escapeHTML(task.pr.url) + '" target="_blank" rel="noopener">' +
+          '&#8599; ' + escapeHTML(task.pr.url) +
+        '</a></div>';
+    }
+
+    // Attempts
+    var attempts = task.attempts || [];
+    if (attempts.length > 0) {
+      html += '<div class="detail-panel__section">' +
+        '<div class="detail-panel__heading">Attempts (' + attempts.length + ')</div>' +
+        '<div class="timeline">';
+      for (var i = 0; i < attempts.length; i++) {
+        var a = attempts[i];
+        var dotClass = "timeline__dot";
+        if (a.status === "running") dotClass += " timeline__dot--running";
+        else if (a.status === "passed") dotClass += " timeline__dot--passed";
+        else if (a.status === "failed") dotClass += " timeline__dot--failed";
+
+        html += '<div class="timeline__item">' +
+          '<div class="' + dotClass + '"></div>' +
+          '<span class="timeline__num">#' + a.number + '</span>' +
+          '<div class="timeline__body">' +
+            '<span class="badge badge--' + (a.status === "passed" ? "completed" : a.status === "failed" ? "failed" : "coding") + '">' +
+              escapeHTML(a.status) + '</span>';
+
+        if (a.fail_reason) {
+          html += ' <span style="color:var(--text-muted);font-size:11px;">' + escapeHTML(a.fail_reason) + '</span>';
+        }
+
+        html += '<div class="timeline__meta">' +
+          formatDate(a.started_at);
+        if (a.completed_at) {
+          html += ' &mdash; ' + formatDuration(a.started_at, a.completed_at);
+        }
+        html += '</div>';
+
+        // Files changed
+        if (a.files_changed && a.files_changed.length > 0) {
+          html += '<div class="timeline__meta" style="margin-top:2px">' +
+            a.files_changed.length + ' file(s) changed</div>';
+        }
+
+        // Deploy result inside attempt
+        if (a.deploy) {
+          html += renderDeployResult(a.deploy);
+        }
+
+        // Tests inside attempt
+        if (a.tests && a.tests.length > 0) {
+          for (var j = 0; j < a.tests.length; j++) {
+            html += renderTestResult(a.tests[j], i + "-" + j);
+          }
+        }
+
+        html += '</div></div>';
+      }
+      html += '</div></div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  function renderDeployResult(deploy) {
+    var uid = "deploy-" + Math.random().toString(36).substr(2, 6);
+    return '<div class="result-card" style="margin-top:var(--sp-2)">' +
+      '<div class="result-card__header" onclick="toggleOutput(\'' + uid + '\', event)">' +
+        '<span class="result-card__name">' +
+          '<span class="badge badge--' + (deploy.status === "success" ? "completed" : "failed") + '">' +
+            escapeHTML(deploy.status) + '</span> Deploy' +
+        '</span>' +
+        '<span class="result-card__meta">' +
+          formatNanoDuration(deploy.duration) +
+          ' <span class="result-card__chevron" id="chev-' + uid + '">&#9654;</span>' +
+        '</span>' +
+      '</div>' +
+      '<div class="result-card__output" id="out-' + uid + '">' +
+        '<pre class="result-card__pre">' + escapeHTML(deploy.output || "No output") + '</pre>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function renderTestResult(test, key) {
+    var uid = "test-" + key + "-" + Math.random().toString(36).substr(2, 6);
+    return '<div class="result-card" style="margin-top:var(--sp-2)">' +
+      '<div class="result-card__header" onclick="toggleOutput(\'' + uid + '\', event)">' +
+        '<span class="result-card__name">' +
+          '<span class="badge badge--' + (test.passed ? "completed" : "failed") + '">' +
+            (test.passed ? "pass" : "fail") + '</span> ' +
+          escapeHTML(test.name || "Test") +
+        '</span>' +
+        '<span class="result-card__meta">' +
+          (test.type ? '<span style="color:var(--text-muted)">' + escapeHTML(test.type) + '</span>' : '') +
+          ' ' + formatNanoDuration(test.duration) +
+          ' <span class="result-card__chevron" id="chev-' + uid + '">&#9654;</span>' +
+        '</span>' +
+      '</div>' +
+      '<div class="result-card__output" id="out-' + uid + '">' +
+        '<pre class="result-card__pre">' + escapeHTML(test.output || "No output") + '</pre>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // Global toggle for output panels
+  window.toggleOutput = function(uid, e) {
+    e.stopPropagation();
+    var out = document.getElementById("out-" + uid);
+    var chev = document.getElementById("chev-" + uid);
+    if (!out) return;
+    var isOpen = out.classList.contains("result-card__output--open");
+    if (isOpen) {
+      out.classList.remove("result-card__output--open");
+      if (chev) chev.classList.remove("result-card__chevron--open");
+    } else {
+      out.classList.add("result-card__output--open");
+      if (chev) chev.classList.add("result-card__chevron--open");
+    }
+  };
+
+  // ── Load config ──
+  function loadConfig() {
+    fetch("/api/config")
+      .then(function(r) { return r.json(); })
+      .then(function(cfg) {
+        if (cfg.project && cfg.project.name) {
+          $projectName.textContent = cfg.project.name;
+        }
+        var html = '<div class="sidebar__section-label">Configuration</div>';
+        if (cfg.project) {
+          html += configRow("Language", cfg.project.language || "-");
+        }
+        if (cfg.source) {
+          html += configRow("Platform", cfg.source.platform || "-");
+          html += configRow("Repo", cfg.source.repo || "-");
+        }
+        if (cfg.ai) {
+          html += configRow("Provider", cfg.ai.provider || "-");
+          html += configRow("Model", cfg.ai.model || "-");
+          html += configRow("Retries", cfg.ai.max_retry || "-");
+        }
+        if (cfg.deploy) {
+          html += configRow("Deploy", cfg.deploy.method || "-");
+        }
+        $configInfo.innerHTML = html;
+      })
+      .catch(function() { /* silently ignore */ });
+  }
+
+  function configRow(key, val) {
+    return '<div class="config-row"><span class="config-row__key">' +
+      escapeHTML(key) + '</span><span class="config-row__val">' +
+      escapeHTML(String(val)) + '</span></div>';
+  }
+
+  // ── SSE ──
+  function connectSSE() {
+    if (evtSource) {
+      evtSource.close();
+    }
+
+    evtSource = new EventSource("/api/events");
+
+    evtSource.addEventListener("tasks", function(e) {
+      try {
+        var data = JSON.parse(e.data);
+        tasks = data;
+        renderTasks();
+      } catch (err) {
+        // ignore parse errors
+      }
+    });
+
+    evtSource.onopen = function() {
+      setConnected(true);
+      stopPoll();
+    };
+
+    evtSource.onerror = function() {
+      setConnected(false);
+      evtSource.close();
+      evtSource = null;
+      startPoll();
+      // Retry SSE after 5s
+      setTimeout(connectSSE, 5000);
+    };
+  }
+
+  // ── Fallback polling ──
+  function fetchTasks() {
+    fetch("/api/tasks")
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (Array.isArray(data)) {
+          tasks = data;
+          renderTasks();
+        }
+      })
+      .catch(function() { /* ignore */ });
+  }
+
+  function startPoll() {
+    if (pollTimer) return;
+    pollTimer = setInterval(fetchTasks, 5000);
+  }
+
+  function stopPoll() {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  // ── Boot ──
+  loadConfig();
+  fetchTasks(); // Initial fetch
+  connectSSE();
+})();
+</script>
+
+</body>
+</html>
