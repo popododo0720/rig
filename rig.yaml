@@ -39,7 +39,7 @@ workflow:
   trigger:
     - event: issues.opened
       labels: ["rig"]
-  steps: ["code", "deploy", "test", "report"]
+  steps: ["code", "report"]
   approval:
     before_deploy: false
 

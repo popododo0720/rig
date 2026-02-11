@@ -89,6 +89,7 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		Repo:     event.RepoFullName,
 		ID:       fmt.Sprintf("%d", event.IssueNumber),
 		Title:    event.IssueTitle,
+		Body:     event.IssueBody,
 		URL:      event.IssueURL,
 	}
 
@@ -150,6 +151,7 @@ type webhookEvent struct {
 	Action       string
 	IssueNumber  int
 	IssueTitle   string
+	IssueBody    string
 	IssueURL     string
 	IssueLabels  []string
 	RepoFullName string
@@ -163,6 +165,7 @@ func (h *Handler) parseEvent(eventType string, body []byte) (*webhookEvent, erro
 		Issue  struct {
 			Number int    `json:"number"`
 			Title  string `json:"title"`
+			Body   string `json:"body"`
 			URL    string `json:"html_url"`
 			Labels []struct {
 				Name string `json:"name"`
@@ -189,6 +192,7 @@ func (h *Handler) parseEvent(eventType string, body []byte) (*webhookEvent, erro
 		Action:       raw.Action,
 		IssueNumber:  raw.Issue.Number,
 		IssueTitle:   raw.Issue.Title,
+		IssueBody:    raw.Issue.Body,
 		IssueURL:     raw.Issue.URL,
 		IssueLabels:  labels,
 		RepoFullName: raw.Repository.FullName,

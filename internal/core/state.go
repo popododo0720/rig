@@ -50,7 +50,7 @@ var validTransitions = map[TaskPhase]map[TaskPhase]bool{
 	PhaseQueued:           {PhasePlanning: true, PhaseFailed: true},
 	PhasePlanning:         {PhaseCoding: true, PhaseFailed: true},
 	PhaseCoding:           {PhaseCommitting: true, PhaseFailed: true},
-	PhaseCommitting:       {PhaseApproval: true, PhaseDeploying: true, PhaseFailed: true},
+	PhaseCommitting:       {PhaseApproval: true, PhaseDeploying: true, PhaseReporting: true, PhaseFailed: true},
 	PhaseApproval:         {PhaseDeploying: true, PhaseFailed: true},
 	PhaseDeploying:        {PhaseTesting: true, PhaseCoding: true, PhaseAwaitingApproval: true, PhaseFailed: true},
 	PhaseTesting:          {PhaseReporting: true, PhaseCoding: true, PhaseDeploying: true, PhaseAwaitingApproval: true, PhaseFailed: true},
@@ -150,6 +150,7 @@ type Issue struct {
 	Repo     string `json:"repo"`
 	ID       string `json:"id"`
 	Title    string `json:"title"`
+	Body     string `json:"body"`
 	URL      string `json:"url"`
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -13,6 +14,11 @@ import (
 
 	"github.com/rigdev/rig/internal/config"
 )
+
+// WorkspaceProvider allows retrieving the git workspace path.
+type WorkspaceProvider interface {
+	GetWorkspace() string
+}
 
 var ErrAwaitingApproval = errors.New("task awaiting approval")
 
@@ -85,6 +91,20 @@ func (e *Engine) SetDryRun(dryRun bool) {
 	e.dryRun = dryRun
 }
 
+// isStepEnabled checks if a workflow step is enabled in config.
+// If no steps are configured, all steps are enabled (backward compatibility).
+func (e *Engine) isStepEnabled(step string) bool {
+	if len(e.cfg.Workflow.Steps) == 0 {
+		return true
+	}
+	for _, s := range e.cfg.Workflow.Steps {
+		if s == step {
+			return true
+		}
+	}
+	return false
+}
+
 // Execute runs the execution cycle for the given issue.
 func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 	log.Printf("[engine] starting execution for issue %s: %s", issue.ID, issue.Title)
@@ -119,7 +139,7 @@ func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 
 	aiIssue := &AIIssue{
 		Title: issue.Title,
-		Body:  "",
+		Body:  issue.Body,
 		URL:   issue.URL,
 	}
 	projectCtx := strings.Join(e.cfg.AI.Context, "\n")
@@ -133,6 +153,21 @@ func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 	e.taskLog(task.ID, "info", fmt.Sprintf("Plan: %s", plan.Summary))
 	task.CompletePipelineStep(PhasePlanning, "success", plan.Summary, "")
 
+	// Clone or pull the repo early so we can provide files as AI context.
+	e.taskLog(task.ID, "info", "Cloning repository...")
+	owner, repo := parseRepo(e.cfg.Source.Repo)
+	if err := e.git.CloneOrPull(ctx, owner, repo, e.cfg.Source.Token); err != nil {
+		e.taskLog(task.ID, "error", fmt.Sprintf("Clone failed: %v", err))
+		return e.failTask(ctx, state, task, ReasonGit, err)
+	}
+
+	// Load repo files for AI context.
+	var repoFiles map[string]string
+	if wp, ok := e.git.(WorkspaceProvider); ok {
+		repoFiles = loadRepoFiles(wp.GetWorkspace(), 50, 100*1024)
+		e.taskLog(task.ID, "info", fmt.Sprintf("Loaded %d repo files for AI context", len(repoFiles)))
+	}
+
 	if err := Transition(task, PhaseCoding); err != nil {
 		return e.failTask(ctx, state, task, ReasonInfra, err)
 	}
@@ -143,7 +178,7 @@ func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 	attempt.Plan = plan.Summary
 
 	e.taskLog(task.ID, "info", "Generating code with AI...")
-	changes, err := stepGenerate(ctx, e.ai, plan, nil)
+	changes, err := stepGenerate(ctx, e.ai, plan, repoFiles)
 	if err != nil {
 		e.taskLog(task.ID, "error", fmt.Sprintf("Code generation failed: %v", err))
 		task.CompletePipelineStep(PhaseCoding, "failed", "", err.Error())
@@ -174,17 +209,6 @@ func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 	task.AddPipelineStep(PhaseCommitting, "running")
 	e.notifyPhase(ctx, task, PhaseCommitting)
 
-	// Clone or pull the repo before committing.
-	e.taskLog(task.ID, "info", "Cloning repository...")
-	owner, repo := parseRepo(e.cfg.Source.Repo)
-	if err := e.git.CloneOrPull(ctx, owner, repo, e.cfg.Source.Token); err != nil {
-		e.taskLog(task.ID, "error", fmt.Sprintf("Clone failed: %v", err))
-		task.CompletePipelineStep(PhaseCommitting, "failed", "", err.Error())
-		completeAttempt(&attempt, "failed", ReasonGit)
-		task.Attempts = append(task.Attempts, attempt)
-		return e.failTask(ctx, state, task, ReasonGit, err)
-	}
-
 	e.taskLog(task.ID, "info", fmt.Sprintf("Creating branch %s and committing...", task.Branch))
 	commitSHA, err := stepCommit(ctx, e.git, task.Branch, changes, task.Issue.Title)
 	if err != nil {
@@ -197,6 +221,21 @@ func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 	e.taskLog(task.ID, "info", fmt.Sprintf("Committed: %s", commitSHA))
 	task.CompletePipelineStep(PhaseCommitting, "success", "changes committed", "")
 	vars["COMMIT_SHA"] = commitSHA
+
+	// Skip deploy/test if not in workflow.steps.
+	if !e.isStepEnabled("deploy") {
+		e.taskLog(task.ID, "info", "Skipping deploy step (not in workflow.steps)")
+		task.AddPipelineStep(PhaseApproval, "running")
+		task.CompletePipelineStep(PhaseApproval, "skipped", "deploy step disabled", "")
+		task.AddPipelineStep(PhaseDeploying, "running")
+		task.CompletePipelineStep(PhaseDeploying, "skipped", "deploy step disabled in workflow config", "")
+		task.AddPipelineStep(PhaseTesting, "running")
+		task.CompletePipelineStep(PhaseTesting, "skipped", "test step disabled (no deploy)", "")
+
+		completeAttempt(&attempt, "passed", "")
+		task.Attempts = append(task.Attempts, attempt)
+		return e.completeTask(ctx, state, task)
+	}
 
 	// Check if before_deploy approval is required.
 	if e.cfg.Workflow.Approval.BeforeDeploy {
@@ -280,6 +319,17 @@ func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 		}
 	}
 	task.CompletePipelineStep(PhaseDeploying, "success", deployResult.Output, "")
+
+	// Skip test if not in workflow.steps.
+	if !e.isStepEnabled("test") {
+		e.taskLog(task.ID, "info", "Skipping test step (not in workflow.steps)")
+		task.AddPipelineStep(PhaseTesting, "running")
+		task.CompletePipelineStep(PhaseTesting, "skipped", "test step disabled in workflow config", "")
+
+		completeAttempt(&attempt, "passed", "")
+		task.Attempts = append(task.Attempts, attempt)
+		return e.completeTask(ctx, state, task)
+	}
 
 	if err := Transition(task, PhaseTesting); err != nil {
 		completeAttempt(&attempt, "failed", ReasonTest)
@@ -810,4 +860,65 @@ func (e *Engine) notifyPhase(ctx context.Context, task *Task, phase TaskPhase) {
 			log.Printf("[engine] notification failed: %v", err)
 		}
 	}
+}
+
+// loadRepoFiles reads source files from the git workspace to provide context
+// for AI code generation. Filters out binary files, large files, and non-code dirs.
+func loadRepoFiles(workspace string, maxFiles int, maxFileSize int64) map[string]string {
+	if workspace == "" {
+		return nil
+	}
+
+	skipDirs := map[string]bool{
+		".git": true, "node_modules": true, "vendor": true,
+		".next": true, "dist": true, "build": true,
+		"__pycache__": true, ".venv": true, "venv": true,
+	}
+
+	codeExts := map[string]bool{
+		".go": true, ".py": true, ".js": true, ".ts": true,
+		".jsx": true, ".tsx": true, ".java": true, ".rs": true,
+		".rb": true, ".php": true, ".sh": true, ".yaml": true,
+		".yml": true, ".json": true, ".toml": true, ".sql": true,
+		".html": true, ".css": true, ".c": true, ".cpp": true, ".h": true,
+	}
+
+	files := make(map[string]string)
+	count := 0
+
+	filepath.WalkDir(workspace, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || count >= maxFiles {
+			if count >= maxFiles {
+				return filepath.SkipAll
+			}
+			return err
+		}
+		if d.IsDir() {
+			if strings.HasPrefix(d.Name(), ".") || skipDirs[d.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !codeExts[filepath.Ext(d.Name())] {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil || info.Size() > maxFileSize {
+			return nil
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		relPath, err := filepath.Rel(workspace, path)
+		if err != nil {
+			return nil
+		}
+		files[relPath] = string(content)
+		count++
+		return nil
+	})
+
+	log.Printf("[engine] loaded %d repo files from %s", len(files), workspace)
+	return files
 }

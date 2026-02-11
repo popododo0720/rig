@@ -60,6 +60,23 @@ var execCmd = &cobra.Command{
 			return fmt.Errorf("invalid issue number: %w", err)
 		}
 
+		// Fetch full issue details (title, body) from GitHub API.
+		owner, repo, err := splitRepo(cfg.Source.Repo)
+		if err != nil {
+			return err
+		}
+		gitAdapter, err := adaptergit.NewGitHub(owner, repo, cfg.Source.Token, cfg.Server.Secret, "")
+		if err != nil {
+			return fmt.Errorf("create git adapter: %w", err)
+		}
+		ghIssue, err := gitAdapter.GetIssue(cmd.Context(), owner, repo, issueNumber)
+		if err != nil {
+			fmt.Printf("Warning: could not fetch issue details: %v\n", err)
+		} else {
+			issue.Title = ghIssue.Title
+			issue.Body = ghIssue.Body
+		}
+
 		engine, err := buildEngineForIssue(cfg, defaultStatePath, issueNumber)
 		if err != nil {
 			return err
