@@ -9,6 +9,7 @@ type Config struct {
 	AI       AIConfig       `yaml:"ai" json:"ai"`
 	Deploy   DeployConfig   `yaml:"deploy" json:"deploy"`
 	Test     []TestConfig   `yaml:"test" json:"test"`
+	Policies []PolicyConfig `yaml:"policies" json:"policies"`
 	Workflow WorkflowConfig `yaml:"workflow" json:"workflow"`
 	Notify   []NotifyConfig `yaml:"notify" json:"notify"`
 	Server   ServerConfig   `yaml:"server" json:"server"`
@@ -32,7 +33,7 @@ type ProjectConfig struct {
 
 // SourceConfig holds source code repository settings.
 type SourceConfig struct {
-	Platform   string `yaml:"platform" json:"platform"`     // github|gitlab|bitbucket|gitea
+	Platform   string `yaml:"platform" json:"platform"` // github|gitlab|bitbucket|gitea
 	Repo       string `yaml:"repo" json:"repo"`
 	BaseBranch string `yaml:"base_branch" json:"base_branch"`
 	Token      string `yaml:"token" json:"token"`
@@ -60,7 +61,7 @@ type DeployConfig struct {
 
 // DeployApprovalConfig controls whether AI-proposed infra changes require human approval.
 type DeployApprovalConfig struct {
-	Mode    string        `yaml:"mode" json:"mode"`       // manual (default) | suggest-only
+	Mode    string        `yaml:"mode" json:"mode"` // manual (default) | suggest-only
 	Timeout time.Duration `yaml:"timeout" json:"timeout"`
 }
 
@@ -108,11 +109,12 @@ type TransportConfig struct {
 
 // SSHConfig holds SSH connection details.
 type SSHConfig struct {
-	Host     string `yaml:"host" json:"host"`
-	Port     int    `yaml:"port" json:"port,omitempty"`
-	User     string `yaml:"user" json:"user"`
-	Key      string `yaml:"key" json:"key,omitempty"`
-	Password string `yaml:"password" json:"password,omitempty"`
+	Host       string `yaml:"host" json:"host"`
+	Port       int    `yaml:"port" json:"port,omitempty"`
+	User       string `yaml:"user" json:"user"`
+	Key        string `yaml:"key" json:"key,omitempty"`
+	Password   string `yaml:"password" json:"password,omitempty"`
+	KnownHosts string `yaml:"known_hosts" json:"known_hosts,omitempty"` // path to known_hosts file; empty = insecure (skip verification)
 }
 
 // RollbackConfig holds rollback settings.
@@ -124,13 +126,22 @@ type RollbackConfig struct {
 
 // TestConfig holds a single test definition.
 type TestConfig struct {
-	Type    string        `yaml:"type" json:"type"` // command|ai-verify
-	Name    string        `yaml:"name" json:"name"`
-	Run     string        `yaml:"run" json:"run,omitempty"`
-	Prompt  string        `yaml:"prompt" json:"prompt,omitempty"`
-	URL     string        `yaml:"url" json:"url,omitempty"`
-	Tools   []string      `yaml:"tools" json:"tools,omitempty"`
-	Timeout time.Duration `yaml:"timeout" json:"timeout,omitempty"`
+	Type          string        `yaml:"type" json:"type"` // command|ai-verify
+	Name          string        `yaml:"name" json:"name"`
+	Run           string        `yaml:"run" json:"run,omitempty"`
+	Prompt        string        `yaml:"prompt" json:"prompt,omitempty"`
+	URL           string        `yaml:"url" json:"url,omitempty"`
+	Tools         []string      `yaml:"tools" json:"tools,omitempty"`
+	AffectedPaths []string      `yaml:"affected_paths" json:"affected_paths,omitempty"`
+	Timeout       time.Duration `yaml:"timeout" json:"timeout,omitempty"`
+}
+
+// PolicyConfig defines a policy-as-code rule.
+type PolicyConfig struct {
+	Name   string `yaml:"name" json:"name"`
+	Rule   string `yaml:"rule" json:"rule"`
+	Value  string `yaml:"value" json:"value"`
+	Action string `yaml:"action" json:"action"`
 }
 
 // WorkflowConfig holds workflow orchestration settings.
@@ -157,9 +168,9 @@ type ApprovalConfig struct {
 
 // NotifyConfig holds a single notification channel.
 type NotifyConfig struct {
-	Type    string   `yaml:"type" json:"type"`     // slack|discord|comment
+	Type    string   `yaml:"type" json:"type"` // slack|discord|comment
 	Webhook string   `yaml:"webhook" json:"webhook,omitempty"`
-	On      []string `yaml:"on" json:"on"`         // deploy|test_fail|test_pass|pr_created|all
+	On      []string `yaml:"on" json:"on"` // deploy|test_fail|test_pass|pr_created|all
 }
 
 // ServerConfig holds webhook server settings.

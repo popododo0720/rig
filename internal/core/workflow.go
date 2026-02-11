@@ -3,8 +3,11 @@ package core
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/rigdev/rig/internal/config"
 )
 
 // --- Adapter interfaces defined in core to avoid import cycles ---
@@ -176,11 +179,15 @@ func stepDeploy(ctx context.Context, deployAdapter DeployAdapterIface, vars map[
 }
 
 // stepTest runs all test runners and returns combined results.
-func stepTest(ctx context.Context, runners []TestRunnerIface, vars map[string]string) ([]TestResult, bool) {
+func stepTest(ctx context.Context, runners []TestRunnerIface, testConfigs []config.TestConfig, changedFiles []string, vars map[string]string) ([]TestResult, bool) {
 	var results []TestResult
 	allPassed := true
 
-	for _, runner := range runners {
+	for i, runner := range runners {
+		if i < len(testConfigs) && !shouldRunTestForChanges(testConfigs[i], changedFiles) {
+			continue
+		}
+
 		result, err := runner.Run(ctx, vars)
 		if err != nil {
 			results = append(results, TestResult{
@@ -200,6 +207,40 @@ func stepTest(ctx context.Context, runners []TestRunnerIface, vars map[string]st
 	}
 
 	return results, allPassed
+}
+
+func shouldRunTestForChanges(testCfg config.TestConfig, changedFiles []string) bool {
+	affectedPaths := testCfg.AffectedPaths
+	if len(affectedPaths) == 0 {
+		return true
+	}
+	if len(changedFiles) == 0 {
+		return false
+	}
+
+	for _, changed := range changedFiles {
+		normChanged := filepath.ToSlash(changed)
+		for _, pathPattern := range affectedPaths {
+			normPattern := filepath.ToSlash(strings.TrimSpace(pathPattern))
+			if normPattern == "" {
+				continue
+			}
+
+			if strings.HasSuffix(normPattern, "/") && strings.HasPrefix(normChanged, normPattern) {
+				return true
+			}
+
+			if strings.HasPrefix(normChanged, normPattern) || normChanged == normPattern {
+				return true
+			}
+
+			if ok, err := filepath.Match(normPattern, normChanged); err == nil && ok {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // stepCreatePR creates a pull request for the task.

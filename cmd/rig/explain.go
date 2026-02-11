@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/rigdev/rig/internal/config"
 	"github.com/rigdev/rig/internal/core"
 	"github.com/spf13/cobra"
 )
@@ -15,7 +16,12 @@ var explainCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		taskID := args[0]
-		statePath := ".rig/state.json"
+		statePath := defaultStatePath
+		useAI, _ := cmd.Flags().GetBool("ai")
+		configPath, _ := cmd.Flags().GetString("config")
+		if configPath == "" {
+			configPath = "rig.yaml"
+		}
 
 		state, err := core.LoadState(statePath)
 		if err != nil {
@@ -112,8 +118,89 @@ var explainCmd = &cobra.Command{
 			}
 		}
 
+		if useAI {
+			fmt.Fprintln(os.Stdout)
+			fmt.Fprintln(os.Stdout, "AI Failure Analysis:")
+
+			analysisLogs, currentCode := buildFailureAnalysisInput(task)
+			if strings.TrimSpace(analysisLogs) == "" {
+				fmt.Fprintf(os.Stdout, "%s no deploy/test output available to analyze\n", markerWarn())
+				return nil
+			}
+
+			cfg, err := config.LoadConfig(configPath)
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+
+			aiAdapter, err := newAIAdapter(cfg.AI)
+			if err != nil {
+				return fmt.Errorf("create ai adapter: %w", err)
+			}
+
+			suggestions, err := aiAdapter.AnalyzeFailure(cmd.Context(), analysisLogs, currentCode)
+			if err != nil {
+				return fmt.Errorf("analyze failure with ai: %w", err)
+			}
+
+			if len(suggestions) == 0 {
+				fmt.Fprintf(os.Stdout, "%s AI returned no code changes\n", markerWarn())
+				return nil
+			}
+
+			fmt.Fprintf(os.Stdout, "%s AI suggested %d change(s):\n", markerOK(), len(suggestions))
+			for _, change := range suggestions {
+				action := nonEmpty(change.Action)
+				fmt.Fprintf(os.Stdout, "- %s [%s]\n", change.Path, action)
+				if strings.TrimSpace(change.Content) != "" {
+					preview := limitLines(change.Content, 20)
+					fmt.Fprintln(os.Stdout, indentLines(preview, "    "))
+				}
+			}
+		}
+
 		return nil
 	},
+}
+
+func buildFailureAnalysisInput(task *core.Task) (string, map[string]string) {
+	var b strings.Builder
+	currentCode := make(map[string]string)
+
+	for _, attempt := range task.Attempts {
+		if len(attempt.FilesChanged) > 0 {
+			for _, p := range attempt.FilesChanged {
+				if _, exists := currentCode[p]; !exists {
+					currentCode[p] = ""
+				}
+			}
+		}
+
+		if attempt.Deploy != nil && strings.TrimSpace(attempt.Deploy.Output) != "" {
+			fmt.Fprintf(&b, "[attempt %d][deploy:%s]\n%s\n\n", attempt.Number, attempt.Deploy.Status, attempt.Deploy.Output)
+		}
+
+		for _, test := range attempt.Tests {
+			if strings.TrimSpace(test.Output) == "" {
+				continue
+			}
+			status := "pass"
+			if !test.Passed {
+				status = "fail"
+			}
+			fmt.Fprintf(&b, "[attempt %d][test:%s:%s]\n%s\n\n", attempt.Number, test.Name, status, test.Output)
+		}
+	}
+
+	if len(task.Pipeline) > 0 {
+		for _, step := range task.Pipeline {
+			if strings.TrimSpace(step.Error) != "" {
+				fmt.Fprintf(&b, "[pipeline:%s:error]\n%s\n\n", step.Phase, step.Error)
+			}
+		}
+	}
+
+	return strings.TrimSpace(b.String()), currentCode
 }
 
 func statusMarker(status string) string {

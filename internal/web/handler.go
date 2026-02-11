@@ -10,11 +10,14 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/rigdev/rig/internal/chatops"
 	"github.com/rigdev/rig/internal/config"
 	"github.com/rigdev/rig/internal/core"
+	"github.com/rigdev/rig/internal/metrics"
 	"github.com/rigdev/rig/internal/storage"
 )
 
@@ -75,6 +78,129 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// corsMiddleware adds CORS headers based on RIG_CORS_ORIGINS env var.
+// If not set, no Access-Control-Allow-Origin header is sent (same-origin only).
+// Set to "*" to allow all origins, or comma-separated origins.
+func corsMiddleware(next http.Handler) http.Handler {
+	originsEnv := os.Getenv("RIG_CORS_ORIGINS")
+	if originsEnv == "" {
+		return next // no CORS header = same-origin only
+	}
+
+	allowedOrigins := make(map[string]bool)
+	allowAll := false
+	for _, o := range strings.Split(originsEnv, ",") {
+		o = strings.TrimSpace(o)
+		if o == "*" {
+			allowAll = true
+		}
+		allowedOrigins[o] = true
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if allowAll {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		} else if origin != "" && allowedOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, X-API-Key, Content-Type")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// rateLimiter implements a simple per-IP token bucket rate limiter.
+type rateLimiter struct {
+	mu       sync.Mutex
+	visitors map[string]*visitor
+	rate     int           // requests per window
+	window   time.Duration // window duration
+}
+
+type visitor struct {
+	tokens    int
+	lastReset time.Time
+}
+
+func newRateLimiter(rate int, window time.Duration) *rateLimiter {
+	rl := &rateLimiter{
+		visitors: make(map[string]*visitor),
+		rate:     rate,
+		window:   window,
+	}
+	// Cleanup stale entries every 5 minutes.
+	go func() {
+		for {
+			time.Sleep(5 * time.Minute)
+			rl.cleanup()
+		}
+	}()
+	return rl
+}
+
+func (rl *rateLimiter) cleanup() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	cutoff := time.Now().Add(-2 * rl.window)
+	for ip, v := range rl.visitors {
+		if v.lastReset.Before(cutoff) {
+			delete(rl.visitors, ip)
+		}
+	}
+}
+
+func (rl *rateLimiter) allow(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	v, exists := rl.visitors[ip]
+	now := time.Now()
+
+	if !exists {
+		rl.visitors[ip] = &visitor{tokens: rl.rate - 1, lastReset: now}
+		return true
+	}
+
+	if now.Sub(v.lastReset) >= rl.window {
+		v.tokens = rl.rate - 1
+		v.lastReset = now
+		return true
+	}
+
+	if v.tokens <= 0 {
+		return false
+	}
+	v.tokens--
+	return true
+}
+
+// rateLimitMiddleware rejects requests that exceed the rate limit.
+func rateLimitMiddleware(rl *rateLimiter) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := r.RemoteAddr
+			if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+				ip = strings.SplitN(fwd, ",", 2)[0]
+			}
+			ip = strings.TrimSpace(ip)
+
+			if !rl.allow(ip) {
+				w.Header().Set("Retry-After", "60")
+				writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate limit exceeded"})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // apiKeyAuthMiddleware checks for a valid API key if RIG_API_KEY env var is set.
 // If RIG_API_KEY is not set, authentication is skipped (open access).
 // API key can be passed via Authorization header (Bearer <key>) or X-API-Key header.
@@ -109,11 +235,38 @@ func apiKeyAuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// sanitizeError strips sensitive information from error messages before returning to clients.
+// It removes paths containing tokens, API keys, passwords, and other credentials.
+func sanitizeError(errMsg string) string {
+	// Replace common sensitive patterns.
+	sensitivePatterns := []string{
+		"sk-ant-", "sk-", "ghp_", "gho_", "github_pat_",
+	}
+	result := errMsg
+	for _, pat := range sensitivePatterns {
+		idx := strings.Index(result, pat)
+		for idx >= 0 {
+			// Find the end of the token (next space, quote, or end of string)
+			end := idx + len(pat)
+			for end < len(result) && result[end] != ' ' && result[end] != '"' && result[end] != '\'' && result[end] != '\n' {
+				end++
+			}
+			result = result[:idx] + "[REDACTED]" + result[end:]
+			idx = strings.Index(result, pat)
+		}
+	}
+	return result
+}
+
 func NewHandler(statePath string, cfg *config.Config, db *storage.DB, execFn ...ExecuteFunc) http.Handler {
 	r := chi.NewRouter()
 
 	// Security headers on all responses
 	r.Use(securityHeadersMiddleware)
+	// CORS (controlled by RIG_CORS_ORIGINS env var, default: same-origin only)
+	r.Use(corsMiddleware)
+	// Rate limiting: 120 requests per minute per IP
+	r.Use(rateLimitMiddleware(newRateLimiter(120, time.Minute)))
 
 	configured := cfg != nil
 
@@ -126,6 +279,10 @@ func NewHandler(statePath string, cfg *config.Config, db *storage.DB, execFn ...
 	r.Route("/api", func(r chi.Router) {
 		// API key auth on all API routes (if RIG_API_KEY is set)
 		r.Use(apiKeyAuthMiddleware)
+		chatopsHandler := chatops.NewHandler(statePath, executeFn)
+		r.Post("/chatops/slack", chatopsHandler.HandleSlack)
+		r.Post("/chatops/discord", chatopsHandler.HandleDiscord)
+
 		// Always available: settings, agents, status
 		if db != nil {
 			r.Get("/settings", handleGetSettings(db))
@@ -139,6 +296,7 @@ func NewHandler(statePath string, cfg *config.Config, db *storage.DB, execFn ...
 		// Task/proposal routes require config (full mode)
 		if configured {
 			r.Get("/tasks", handleGetTasks(statePath))
+			r.Get("/metrics/dora", handleGetDORAMetrics(statePath))
 			r.Post("/tasks", handleCreateTask(statePath, cfg, executeFn))
 			r.Post("/tasks/{id}/retry", handleRetryTask(statePath, executeFn))
 			r.Post("/tasks/{id}/stop", handleStopTask(statePath))
@@ -161,6 +319,7 @@ func NewHandler(statePath string, cfg *config.Config, db *storage.DB, execFn ...
 				})
 			}
 			r.Get("/tasks", http.HandlerFunc(setupHandler))
+			r.Get("/metrics/dora", http.HandlerFunc(setupHandler))
 			r.Get("/tasks/{id}", http.HandlerFunc(setupHandler))
 			r.Post("/tasks", http.HandlerFunc(setupHandler))
 			r.Get("/proposals", http.HandlerFunc(setupHandler))
@@ -185,11 +344,23 @@ func NewHandler(statePath string, cfg *config.Config, db *storage.DB, execFn ...
 	return r
 }
 
+func handleGetDORAMetrics(statePath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		state, err := core.LoadState(statePath)
+		if err != nil {
+			writeErrorJSON(w, http.StatusInternalServerError, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, metrics.CalculateDORA(state.Tasks))
+	}
+}
+
 func handleGetTasks(statePath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		state, err := core.LoadState(statePath)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, state.Tasks)
@@ -202,7 +373,7 @@ func handleGetTask(statePath string) http.HandlerFunc {
 
 		state, err := core.LoadState(statePath)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -400,23 +571,23 @@ func handleCreateTask(statePath string, cfg *config.Config, executeFn ExecuteFun
 
 		state, err := core.LoadState(statePath)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 
 		task := state.CreateTask(issue)
 		if err := core.SaveState(state, statePath); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 
-		// 태스크 생성 후 바로 엔진 실행 (백그라운드)
+		// Execute task in background with a detached context (outlives HTTP request).
 		if executeFn != nil {
-			go func() {
-				if err := executeFn(issue); err != nil {
-					log.Printf("web: execute task %s failed: %v", task.ID, err)
+			go func(taskID string, iss core.Issue) {
+				if err := executeFn(iss); err != nil {
+					log.Printf("web: execute task %s failed: %v", taskID, sanitizeError(err.Error()))
 				}
-			}()
+			}(task.ID, issue)
 		}
 
 		writeJSON(w, http.StatusCreated, task)
@@ -429,7 +600,7 @@ func handleRetryTask(statePath string, executeFn ExecuteFunc) http.HandlerFunc {
 
 		state, err := core.LoadState(statePath)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -444,11 +615,11 @@ func handleRetryTask(statePath string, executeFn ExecuteFunc) http.HandlerFunc {
 			return
 		}
 
-		go func() {
-			if err := executeFn(task.Issue); err != nil {
-				log.Printf("web: retry task %s failed: %v", task.ID, err)
+		go func(taskID string, iss core.Issue) {
+			if err := executeFn(iss); err != nil {
+				log.Printf("web: retry task %s failed: %v", taskID, sanitizeError(err.Error()))
 			}
-		}()
+		}(task.ID, task.Issue)
 
 		writeJSON(w, http.StatusOK, map[string]string{"status": "started", "task_id": task.ID})
 	}
@@ -460,7 +631,7 @@ func handleStopTask(statePath string) http.HandlerFunc {
 
 		state, err := core.LoadState(statePath)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -471,12 +642,12 @@ func handleStopTask(statePath string) http.HandlerFunc {
 		}
 
 		if err := core.Transition(task, core.PhaseFailed); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusBadRequest, err)
 			return
 		}
 
 		if err := core.SaveState(state, statePath); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -498,7 +669,7 @@ func handleGetTaskLogs(db *storage.DB) http.HandlerFunc {
 			logs, err = db.GetLogs(id)
 		}
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 		if logs == nil {
@@ -557,7 +728,7 @@ func handleGetProposals(statePath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		state, err := core.LoadState(statePath)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -585,7 +756,7 @@ func handleGetTaskProposals(statePath string) http.HandlerFunc {
 
 		state, err := core.LoadState(statePath)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -612,7 +783,7 @@ func handleApprove(statePath string, _ *config.Config) http.HandlerFunc {
 
 		state, err := core.LoadState(statePath)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -633,7 +804,7 @@ func handleApprove(statePath string, _ *config.Config) http.HandlerFunc {
 		proposal.ReviewedAt = &now
 
 		if err := core.SaveState(state, statePath); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -650,7 +821,7 @@ func handleReject(statePath string) http.HandlerFunc {
 
 		state, err := core.LoadState(statePath)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -671,12 +842,12 @@ func handleReject(statePath string) http.HandlerFunc {
 		proposal.ReviewedAt = &now
 
 		if err := core.Transition(task, core.PhaseFailed); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusBadRequest, err)
 			return
 		}
 
 		if err := core.SaveState(state, statePath); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -698,7 +869,7 @@ func handleSSE(statePath string) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		// CORS is handled by corsMiddleware — no wildcard here.
 
 		// Send initial state immediately.
 		state, err := core.LoadState(statePath)
@@ -763,6 +934,11 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	}
 }
 
+// writeErrorJSON writes a sanitized error JSON response.
+func writeErrorJSON(w http.ResponseWriter, status int, err error) {
+	writeJSON(w, status, map[string]string{"error": sanitizeError(err.Error())})
+}
+
 // --- Settings API ---
 
 var sensitiveFields = map[string][]string{
@@ -788,7 +964,7 @@ func handleGetSettings(db *storage.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		settings, err := db.GetAllSettings()
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -833,11 +1009,11 @@ func handleSaveSettings(db *storage.DB) http.HandlerFunc {
 			// Single section save.
 			merged, err := mergeWithExisting(db, req.Section, req.Data)
 			if err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				writeErrorJSON(w, http.StatusInternalServerError, err)
 				return
 			}
 			if err := db.SetSetting(req.Section, string(merged)); err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				writeErrorJSON(w, http.StatusInternalServerError, err)
 				return
 			}
 		} else {
@@ -850,11 +1026,11 @@ func handleSaveSettings(db *storage.DB) http.HandlerFunc {
 			for section, data := range sections {
 				merged, err := mergeWithExisting(db, section, data)
 				if err != nil {
-					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+					writeErrorJSON(w, http.StatusInternalServerError, err)
 					return
 				}
 				if err := db.SetSetting(section, string(merged)); err != nil {
-					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+					writeErrorJSON(w, http.StatusInternalServerError, err)
 					return
 				}
 			}
@@ -934,7 +1110,7 @@ func handleGetAgents(db *storage.DB) http.HandlerFunc {
 		repo := chi.URLParam(r, "repo")
 		content, err := db.GetAgents(repo)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"repo": repo, "content": content})
@@ -954,7 +1130,7 @@ func handleSaveAgents(db *storage.DB) http.HandlerFunc {
 		}
 
 		if err := db.SetAgents(repo, req.Content); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -966,7 +1142,7 @@ func handleListAgents(db *storage.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		agents, err := db.ListAgents()
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErrorJSON(w, http.StatusInternalServerError, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, agents)

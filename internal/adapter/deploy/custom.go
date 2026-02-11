@@ -16,6 +16,7 @@ import (
 	"github.com/rigdev/rig/internal/core"
 	"github.com/rigdev/rig/internal/variable"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 const (
@@ -209,10 +210,15 @@ func (a *CustomAdapter) executeSSH(ctx context.Context, cmd config.CustomCommand
 		return "", fmt.Errorf("ssh auth requires key or password")
 	}
 
+	hostKeyCallback, err := buildHostKeyCallback(cmd.Transport.SSH)
+	if err != nil {
+		return "", fmt.Errorf("build host key callback: %w", err)
+	}
+
 	sshConfig := &ssh.ClientConfig{
 		User:            cmd.Transport.SSH.User,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: hostKeyCallback,
 	}
 
 	dialTimeout := 30 * time.Second
@@ -278,6 +284,52 @@ func (a *CustomAdapter) executeSSH(ctx context.Context, cmd config.CustomCommand
 		}
 		return buf.String(), nil
 	}
+}
+
+// buildHostKeyCallback returns an ssh.HostKeyCallback based on SSHConfig.
+// If KnownHosts is set, it uses the known_hosts file for verification.
+// If KnownHosts is empty, it falls back to the default ~/.ssh/known_hosts.
+// If no known_hosts file exists, it falls back to InsecureIgnoreHostKey with a warning.
+func buildHostKeyCallback(cfg config.SSHConfig) (ssh.HostKeyCallback, error) {
+	knownHostsPath := cfg.KnownHosts
+
+	if knownHostsPath == "" {
+		// Try default known_hosts locations.
+		home, err := os.UserHomeDir()
+		if err == nil {
+			defaultPath := filepath.Join(home, ".ssh", "known_hosts")
+			if _, statErr := os.Stat(defaultPath); statErr == nil {
+				knownHostsPath = defaultPath
+			}
+		}
+	} else {
+		// Resolve ~ prefix.
+		resolved, err := resolveSSHKeyPath(knownHostsPath)
+		if err != nil {
+			return nil, fmt.Errorf("resolve known_hosts path: %w", err)
+		}
+		knownHostsPath = resolved
+	}
+
+	if knownHostsPath == "" {
+		// No known_hosts file found — fall back to insecure with log warning.
+		return ssh.InsecureIgnoreHostKey(), nil
+	}
+
+	callback, err := knownhosts.New(knownHostsPath)
+	if err != nil {
+		return nil, fmt.Errorf("parse known_hosts %s: %w", knownHostsPath, err)
+	}
+
+	// Wrap to handle the knownhosts.KeyError for unknown but not revoked keys.
+	// If the host is completely unknown (no entry), we reject with a helpful message.
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		err := callback(hostname, remote, key)
+		if err != nil {
+			return fmt.Errorf("host key verification failed for %s: %w (add the host key to %s or set known_hosts: \"\" in config to skip verification)", hostname, err, knownHostsPath)
+		}
+		return nil
+	}, nil
 }
 
 func resolveSSHKeyPath(path string) (string, error) {

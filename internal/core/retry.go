@@ -58,6 +58,10 @@ func retryLoop(
 			task.CompletePipelineStep(PhaseCoding, "failed", "", err.Error())
 			return fmt.Errorf("analyze failure: %w", err)
 		}
+		if err := e.enforcePolicies(task, fixChanges); err != nil {
+			task.CompletePipelineStep(PhaseCoding, "failed", "", err.Error())
+			return fmt.Errorf("policy evaluation: %w", err)
+		}
 		task.CompletePipelineStep(PhaseCoding, "success", fmt.Sprintf("generated %d retry file changes", len(fixChanges)), "")
 
 		newAttemptNum := len(task.Attempts) + 1
@@ -147,7 +151,7 @@ func retryLoop(
 		e.notifyPhase(ctx, task, PhaseTesting)
 		task.AddPipelineStep(PhaseTesting, "running")
 
-		results, allPassed := stepTest(ctx, e.testRunners, vars)
+		results, allPassed := stepTest(ctx, e.testRunners, e.testConfigs, retryAttempt.FilesChanged, vars)
 		retryAttempt.Tests = results
 
 		if allPassed {

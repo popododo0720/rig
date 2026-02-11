@@ -69,6 +69,8 @@ func main() {
 	initCmd.Flags().String("template", "custom", "Template type (custom|docker)")
 
 	logsCmd.Flags().BoolP("follow", "f", false, "Follow logs in real-time (polls every 2s)")
+	explainCmd.Flags().Bool("ai", false, "Use configured AI provider to analyze failure output")
+	explainCmd.Flags().StringP("config", "c", "rig.yaml", "Path to config file (used with --ai)")
 
 	migrateCmd.Flags().StringP("config", "c", "", "Path to config file (default: rig.yaml)")
 	migrateCmd.Flags().String("state", "", "Path to state file (default: .rig/state.json)")

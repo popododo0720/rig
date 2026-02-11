@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ type Engine struct {
 	ai          AIAdapter
 	deploy      DeployAdapterIface
 	testRunners []TestRunnerIface
+	testConfigs []config.TestConfig
 	notifiers   []NotifierIface
 	statePath   string
 	dryRun      bool
@@ -46,12 +48,20 @@ func NewEngine(
 	notifiers []NotifierIface,
 	statePath string,
 ) *Engine {
+	commandTests := make([]config.TestConfig, 0, len(cfg.Test))
+	for _, testCfg := range cfg.Test {
+		if testCfg.Type == "" || testCfg.Type == "command" {
+			commandTests = append(commandTests, testCfg)
+		}
+	}
+
 	return &Engine{
 		cfg:         cfg,
 		git:         git,
 		ai:          ai,
 		deploy:      deploy,
 		testRunners: testRunners,
+		testConfigs: commandTests,
 		notifiers:   notifiers,
 		statePath:   statePath,
 	}
@@ -146,6 +156,13 @@ func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 		filesChanged[i] = c.Path
 	}
 	attempt.FilesChanged = filesChanged
+	if err := e.enforcePolicies(task, changes); err != nil {
+		e.taskLog(task.ID, "error", fmt.Sprintf("Policy blocked task: %v", err))
+		task.CompletePipelineStep(PhaseCoding, "failed", "", err.Error())
+		completeAttempt(&attempt, "failed", ReasonConfig)
+		task.Attempts = append(task.Attempts, attempt)
+		return e.failTask(ctx, state, task, ReasonConfig, err)
+	}
 	e.taskLog(task.ID, "info", fmt.Sprintf("Generated %d file(s): %s", len(changes), strings.Join(filesChanged, ", ")))
 	task.CompletePipelineStep(PhaseCoding, "success", fmt.Sprintf("generated %d file changes", len(changes)), "")
 
@@ -272,7 +289,7 @@ func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 	task.AddPipelineStep(PhaseTesting, "running")
 	e.notifyPhase(ctx, task, PhaseTesting)
 
-	testResults, allPassed := stepTest(ctx, e.testRunners, vars)
+	testResults, allPassed := stepTest(ctx, e.testRunners, e.testConfigs, attempt.FilesChanged, vars)
 	attempt.Tests = testResults
 
 	if allPassed {
@@ -390,7 +407,7 @@ func (e *Engine) Resume(ctx context.Context, taskID string, approved bool) error
 	task.AddPipelineStep(PhaseTesting, "running")
 	e.notifyPhase(ctx, task, PhaseTesting)
 
-	testResults, allPassed := stepTest(ctx, e.testRunners, vars)
+	testResults, allPassed := stepTest(ctx, e.testRunners, e.testConfigs, attempt.FilesChanged, vars)
 	attempt.Tests = testResults
 
 	if allPassed {
@@ -668,6 +685,121 @@ func parseRepo(fullName string) (string, string) {
 		return fullName, ""
 	}
 	return parts[0], parts[1]
+}
+
+func (e *Engine) enforcePolicies(task *Task, changes []AIFileChange) error {
+	if len(e.cfg.Policies) == 0 {
+		return nil
+	}
+
+	evalTask := *task
+	violations := evaluatePolicies(e.cfg.Policies, &evalTask, changes, len(e.cfg.Test) > 0)
+	if len(violations) == 0 {
+		return nil
+	}
+
+	blocked := make([]string, 0)
+	for _, violation := range violations {
+		detail := fmt.Sprintf("%s (%s): %s", violation.Name, violation.Rule, violation.Message)
+		if violation.Action == "warn" {
+			e.taskLog(task.ID, "warn", "Policy warning: "+detail)
+			continue
+		}
+		blocked = append(blocked, detail)
+	}
+
+	if len(blocked) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("policy violation: %s", strings.Join(blocked, "; "))
+}
+
+type policyViolation struct {
+	Name    string
+	Rule    string
+	Action  string
+	Message string
+}
+
+func evaluatePolicies(policies []config.PolicyConfig, task *Task, changes []AIFileChange, hasTestsConfigured bool) []policyViolation {
+	violations := make([]policyViolation, 0)
+
+	for _, p := range policies {
+		action := normalizePolicyAction(p.Action)
+		rule := strings.TrimSpace(strings.ToLower(p.Rule))
+
+		switch rule {
+		case "max_file_changes":
+			limit, err := strconv.Atoi(strings.TrimSpace(p.Value))
+			if err != nil || limit < 0 {
+				continue
+			}
+			if len(changes) > limit {
+				violations = append(violations, policyViolation{Name: p.Name, Rule: p.Rule, Action: action, Message: "generated file changes exceed configured limit"})
+			}
+		case "require_tests":
+			if !hasTestsConfigured {
+				violations = append(violations, policyViolation{Name: p.Name, Rule: p.Rule, Action: action, Message: "tests are required but no test configuration is available"})
+			}
+		case "blocked_paths":
+			patterns := splitPolicyPatterns(p.Value)
+			for _, change := range changes {
+				if pathMatchesPolicyPattern(change.Path, patterns) {
+					violations = append(violations, policyViolation{Name: p.Name, Rule: p.Rule, Action: action, Message: "generated change touches a blocked path: " + change.Path})
+					break
+				}
+			}
+		case "max_retries":
+			limit, err := strconv.Atoi(strings.TrimSpace(p.Value))
+			if err != nil || limit < 0 {
+				continue
+			}
+			retries := len(task.Attempts)
+			if retries > limit {
+				violations = append(violations, policyViolation{Name: p.Name, Rule: p.Rule, Action: action, Message: "task retries exceed configured limit"})
+			}
+		}
+	}
+
+	return violations
+}
+
+func normalizePolicyAction(action string) string {
+	v := strings.TrimSpace(strings.ToLower(action))
+	if v == "warn" {
+		return "warn"
+	}
+	return "block"
+}
+
+func splitPolicyPatterns(value string) []string {
+	parts := strings.Split(value, ",")
+	patterns := make([]string, 0, len(parts))
+	for _, p := range parts {
+		norm := filepath.ToSlash(strings.TrimSpace(p))
+		if norm == "" {
+			continue
+		}
+		patterns = append(patterns, norm)
+	}
+	return patterns
+}
+
+func pathMatchesPolicyPattern(path string, patterns []string) bool {
+	normPath := filepath.ToSlash(path)
+	for _, pattern := range patterns {
+		if strings.HasSuffix(pattern, "/") && strings.HasPrefix(normPath, pattern) {
+			return true
+		}
+		if strings.HasPrefix(normPath, pattern) || normPath == pattern {
+			return true
+		}
+		if ok, err := filepath.Match(pattern, normPath); err == nil && ok {
+			return true
+		}
+	}
+	return false
 }
 
 // notifyPhase sends a notification about a phase transition.

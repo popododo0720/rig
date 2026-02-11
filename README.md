@@ -10,12 +10,22 @@ Jenkins의 AI 버전. GitHub 이슈를 받아 AI가 코드를 생성하고, 배�
 - **셀프 힐링**: 테스트 실패 시 AI가 분석 후 코드 수정 → 재시도 (설정 가능)
 - **배포 실패 자동 분석**: 배포 실패 시 AI가 인프라 파일(ansible, docker-compose, k8s 등)을 분석하고 수정안 제안
 - **제안/승인 시스템**: AI가 제안한 인프라 변경사항을 사람이 검토 후 승인/거부 (안전장치)
+- **배포 전 승인 게이트**: `before_deploy: true` 설정 시 배포 전 사람의 승인 필요
 - **멀티 프로젝트**: 여러 GitHub 레포를 하나의 Rig 인스턴스에서 관리
-- **멀티 AI 프로바이더**: Anthropic (Claude), OpenAI (GPT), Ollama (로컬 LLM)
-- **유연한 배포**: 로컬 커맨드, SSH 원격 실행, Docker Compose 지원
+- **멀티 AI 프로바이더**: Anthropic (Claude), OpenAI (GPT), Ollama (로컬 LLM), Claude Code CLI
+- **유연한 배포**: 로컬 커맨드, SSH 원격 실행 (known_hosts 지원), Docker Compose 지원
 - **파이프라인 추적**: 12단계 실행 사이클 + 단계별 상태/에러/타이밍 기록
 - **웹 대시보드**: 파이프라인 시각화, 태스크 등록, 제안 Diff 뷰어, 승인/거부 버튼
 - **웹훅 서버**: GitHub 이벤트 수신 → 자동 트리거
+- **ChatOps**: Slack/Discord에서 `/rig status`, `/rig exec`, `/rig approve` 등 명령어 실행
+- **DORA 메트릭스**: 배포 빈도, 리드타임, MTTR, 변경 실패율 자동 계산
+- **Policy-as-Code**: AI가 생성한 코드에 규칙 적용 (파일 수 제한, 차단 경로, 테스트 필수 등)
+- **AI 실패 분석**: `rig explain --ai` 명령어로 AI가 실패 원인 분석 + 수정 제안
+- **스마트 테스트**: `affected_paths` 설정으로 변경된 파일에 관련된 테스트만 실행
+- **실시간 로그**: `rig logs --follow` 명령어로 파이프라인 진행 실시간 추적
+- **단계별 실행**: `rig exec --step code|deploy|test` 명령어로 특정 단계만 실행
+- **Slack/Discord 알림**: 파이프라인 이벤트를 웹훅으로 알림 전송
+- **보안 강화**: API 키 인증, CORS 제어, Rate Limiting, 에러 메시지 난독화
 
 ## 빠른 시작
 
@@ -51,6 +61,10 @@ export OPENAI_API_KEY="sk-xxx"          # OpenAI API 키
 # Ollama는 API 키 불필요 (로컬 실행)
 
 export WEBHOOK_SECRET="your_secret"     # 웹훅 시그니처 검증용 (선택)
+
+# 보안 (선택)
+export RIG_API_KEY="your_api_key"       # 웹 API 인증 키 (미설정시 open access)
+export RIG_CORS_ORIGINS="http://localhost:3000"  # CORS 허용 origin (미설정시 same-origin only)
 ```
 
 ### 4. 설정 검증
@@ -319,7 +333,68 @@ projects:
 notify:
   - type: comment                  # GitHub 이슈에 코멘트
     on: ["all"]                    # deploy | test_fail | test_pass | pr_created | all
+  - type: slack                    # Slack 웹훅 알림
+    webhook: "https://hooks.slack.com/services/T.../B.../xxx"
+    on: ["deploy", "test_fail", "pr_created"]
+  - type: discord                  # Discord 웹훅 알림
+    webhook: "https://discord.com/api/webhooks/xxx/yyy"
+    on: ["all"]
 ```
+
+### 스마트 테스트 (Smart Test Selection)
+
+변경된 파일에 관련된 테스트만 실행하여 시간 절약:
+
+```yaml
+test:
+  - type: command
+    name: api-test
+    run: "go test ./api/..."
+    timeout: 120s
+    affected_paths: ["api/", "internal/api/"]    # 이 경로의 파일이 변경된 경우에만 실행
+
+  - type: command
+    name: web-test
+    run: "npm test"
+    timeout: 60s
+    affected_paths: ["web/", "frontend/"]
+
+  - type: command
+    name: integration-test
+    run: "make integration-test"
+    timeout: 300s
+    # affected_paths 미설정 = 항상 실행
+```
+
+> `affected_paths`가 설정된 테스트는 AI가 생성한 코드 변경이 해당 경로와 매칭될 때만 실행됩니다. 미설정 테스트는 항상 실행됩니다.
+
+### Policy-as-Code (정책 규칙)
+
+AI가 생성한 코드에 자동으로 규칙을 적용:
+
+```yaml
+policies:
+  - name: file-change-limit
+    rule: max_file_changes          # AI가 한번에 수정할 수 있는 최대 파일 수
+    value: "10"
+    action: block                   # block | warn
+
+  - name: require-tests
+    rule: require_tests             # 테스트 설정 필수
+    action: block
+
+  - name: protect-secrets
+    rule: blocked_paths             # AI가 수정할 수 없는 경로
+    value: "*.env,secrets/,.env*"
+    action: block
+
+  - name: retry-warning
+    rule: max_retries               # 재시도 횟수 경고
+    value: "5"
+    action: warn
+```
+
+> `block` 정책 위반 시 태스크가 즉시 실패합니다. `warn` 정책 위반 시 로그에 경고만 남깁니다.
 
 ---
 
@@ -329,16 +404,45 @@ notify:
 |--------|------|--------|
 | `init` | 설정 템플릿 생성 | `rig init [--template docker]` |
 | `validate` | 설정 파일 검증 | `rig validate -c rig.yaml` |
-| `exec` | 이슈 수동 실행 | `rig exec <github-issue-url> [--dry-run] [-c config]` |
+| `exec` | 이슈 수동 실행 | `rig exec <github-issue-url> [--dry-run] [--step code\|deploy\|test] [-c config]` |
 | `run` | 웹훅 서버 시작 | `rig run [-p 9000] [-c config]` |
 | `status` | 태스크 상태 조회 | `rig status` |
-| `logs` | 태스크 로그 조회 | `rig logs <task-id>` |
+| `logs` | 태스크 로그 조회 | `rig logs <task-id> [--follow]` |
+| `explain` | 실패 원인 분석 | `rig explain <task-id> [--ai] [-c config]` |
 | `proposals` | 대기 중인 제안 조회 | `rig proposals [task-id]` |
 | `approve` | 제안 승인 + 재실행 | `rig approve <task-id> [-c config]` |
 | `reject` | 제안 거부 + 태스크 실패 | `rig reject <task-id> [-c config]` |
 | `web` | 웹 대시보드 시작 | `rig web [-p 3000] [-c config]` |
+| `serve` | 대시보드 + 웹훅 동시 실행 | `rig serve [--web-port 3000] [--webhook-port 9000] [-c config]` |
 | `doctor` | 환경 진단 | `rig doctor` |
 | `version` | 버전 출력 | `rig version` |
+
+### 새 명령어 상세
+
+**`rig explain <task-id> [--ai]`** — 실패한 태스크의 원인을 분석
+```bash
+# 구조화된 실패 보고서 (파이프라인, 시도, 제안 정보)
+./rig explain task-20250211-001
+
+# AI가 실패 로그를 분석해서 수정 제안까지 제공
+./rig explain task-20250211-001 --ai -c rig.yaml
+```
+
+**`rig logs <task-id> --follow`** — 실시간 로그 추적
+```bash
+# 실시간으로 파이프라인 진행 상태를 추적 (2초 간격 폴링)
+./rig logs task-20250211-001 --follow
+# 완료/실패 시 자동 종료
+```
+
+**`rig exec --step`** — 특정 단계만 실행
+```bash
+# 코드 생성만 실행 (배포/테스트 건너뜀)
+./rig exec https://github.com/owner/repo/issues/42 --step code
+
+# 배포만 실행
+./rig exec https://github.com/owner/repo/issues/42 --step deploy
+```
 
 ---
 
@@ -530,6 +634,89 @@ API 엔드포인트:
 | `POST /api/reject/{taskId}` | 제안 거부 |
 | `GET /api/config` | 프로젝트 설정 (민감 정보 제외) |
 | `GET /api/events` | SSE 실시간 이벤트 스트림 |
+| `GET /api/metrics/dora` | DORA 메트릭스 (30일 기준) |
+| `POST /api/chatops/slack` | Slack ChatOps 명령어 수신 |
+| `POST /api/chatops/discord` | Discord ChatOps 명령어 수신 |
+
+---
+
+## ChatOps (Slack/Discord)
+
+Slack 또는 Discord에서 직접 Rig를 제어할 수 있습니다.
+
+### Slack 설정
+
+1. Slack App 생성 → Slash Commands → `/rig` 추가
+2. **Request URL**: `https://your-server:3000/api/chatops/slack`
+3. 사용 가능한 명령어:
+
+```
+/rig status          # 태스크 요약 (상태별 카운트)
+/rig tasks           # 최근 5개 태스크 목록
+/rig logs <task-id>  # 마지막 5개 파이프라인 단계
+/rig exec <issue-url># 새 태스크 생성 + 실행
+/rig approve <task-id># 제안 승인
+/rig reject <task-id> # 제안 거부
+```
+
+### Discord 설정
+
+1. Discord webhook 또는 봇에서 `!rig` 프리픽스로 메시지 전송
+2. **Webhook URL**: `https://your-server:3000/api/chatops/discord`
+3. 동일한 명령어 지원 (`!rig status`, `!rig tasks` 등)
+
+---
+
+## DORA 메트릭스
+
+`GET /api/metrics/dora` 엔드포인트로 최근 30일 기준 DORA 4대 지표를 확인:
+
+```json
+{
+  "deploy_frequency": 0.5,        // 일 평균 배포 횟수
+  "lead_time": 7200000000000,     // 평균 리드타임 (created → completed, nanoseconds)
+  "mttr": 3600000000000,          // 평균 복구 시간 (failed → next success, nanoseconds)
+  "change_failure_rate": 15.5     // 변경 실패율 (%)
+}
+```
+
+---
+
+## 보안 설정
+
+### API 키 인증
+```bash
+export RIG_API_KEY="your-secret-key"
+```
+설정 시 모든 `/api/*` 엔드포인트에 인증 필요:
+- `Authorization: Bearer <key>` 헤더
+- `X-API-Key: <key>` 헤더
+- `?api_key=<key>` 쿼리 파라미터 (SSE 용)
+
+### CORS
+```bash
+export RIG_CORS_ORIGINS="http://localhost:3000,https://my-domain.com"
+```
+미설정 시 same-origin만 허용. `*` 설정 시 모든 origin 허용.
+
+### Rate Limiting
+기본 120 요청/분/IP. 초과 시 `429 Too Many Requests` 응답.
+
+### SSH Known Hosts
+```yaml
+deploy:
+  config:
+    commands:
+      - name: deploy
+        run: "systemctl restart app"
+        transport:
+          type: ssh
+          ssh:
+            host: 192.168.1.100
+            user: deploy
+            key: ~/.ssh/deploy_key
+            known_hosts: ~/.ssh/known_hosts  # 미설정 시 기본 ~/.ssh/known_hosts 사용, 없으면 검증 건너뜀
+```
 
 ---
 
