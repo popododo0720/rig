@@ -22,6 +22,13 @@ func retryLoop(
 	retryCount := 0
 
 	for {
+		// Check for context cancellation between retries.
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("retry cancelled: %w", ctx.Err())
+		default:
+		}
+
 		retryCount++
 		if maxRetry > 0 && retryCount > maxRetry {
 			return fmt.Errorf("max retry count (%d) exceeded", maxRetry)

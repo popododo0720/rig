@@ -9,8 +9,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// envVarPattern matches ${VAR_NAME} patterns in YAML content.
+// envVarPattern matches ${VAR_NAME} patterns in config content.
 var envVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
+
+// ResolveEnvVars substitutes ${VAR_NAME} patterns with os.Getenv(VAR_NAME).
+// Unresolved variables (env var not set) are left as-is without error.
+func ResolveEnvVars(s string) string {
+	return envVarPattern.ReplaceAllStringFunc(s, func(match string) string {
+		varName := match[2 : len(match)-1]
+		if val, ok := os.LookupEnv(varName); ok {
+			return val
+		}
+		return match // leave unresolved as-is
+	})
+}
 
 // LoadConfig reads a YAML configuration file, substitutes environment
 // variables, parses into Config, and validates the result.

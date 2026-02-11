@@ -55,10 +55,9 @@ var serveCmd = &cobra.Command{
 
 		errCh := make(chan error, 2)
 
-		// --- Web Dashboard (always starts) ---
-		var execFn web.ExecuteFunc
-		if cfg != nil {
-			execFn = func(issue core.Issue) error {
+		// --- Shared execute callback ---
+		makeExecFn := func() func(core.Issue) error {
+			return func(issue core.Issue) error {
 				issueNumber, _ := strconv.Atoi(issue.ID)
 				engine, err := buildEngineForIssue(cfg, defaultStatePath, issueNumber)
 				if err != nil {
@@ -69,6 +68,12 @@ var serveCmd = &cobra.Command{
 				})
 				return engine.Execute(ctx, issue)
 			}
+		}
+
+		// --- Web Dashboard (always starts) ---
+		var execFn web.ExecuteFunc
+		if cfg != nil {
+			execFn = makeExecFn()
 		}
 		webHandler := web.NewHandler(defaultStatePath, cfg, db, execFn)
 		webSrv := &http.Server{
@@ -108,20 +113,7 @@ var serveCmd = &cobra.Command{
 			cfg.Server.Secret,
 			cfg.Workflow.Trigger,
 			defaultStatePath,
-			func(issue core.Issue) error {
-				issueNumber, err := strconv.Atoi(issue.ID)
-				if err != nil {
-					return fmt.Errorf("invalid issue ID %q: %w", issue.ID, err)
-				}
-				engine, err := buildEngineForIssue(cfg, defaultStatePath, issueNumber)
-				if err != nil {
-					return err
-				}
-				engine.SetLogFunc(func(taskID, level, message string) {
-					_ = db.AppendLog(taskID, level, message)
-				})
-				return engine.Execute(ctx, issue)
-			},
+			makeExecFn(),
 		)
 		whServer := webhook.NewServer(cfg.Server, whHandler)
 		go func() {
@@ -145,6 +137,7 @@ var serveCmd = &cobra.Command{
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			_ = webSrv.Shutdown(shutdownCtx)
+			// whServer shuts down via ctx cancellation in its own ListenAndServe
 			return nil
 		case err := <-errCh:
 			return err

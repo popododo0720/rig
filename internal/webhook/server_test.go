@@ -141,7 +141,7 @@ func TestServerMissingSignature(t *testing.T) {
 	}
 }
 
-func TestServerNoSecretSkipsVerification(t *testing.T) {
+func TestServerNoSecretRejectsRequest(t *testing.T) {
 	var called bool
 
 	handler := NewHandler("", []config.TriggerConfig{
@@ -166,18 +166,20 @@ func TestServerNoSecretSkipsVerification(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusAccepted {
-		t.Errorf("Expected 202, got %d", resp.StatusCode)
+	// Empty secret now rejects requests for security.
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("Expected 401, got %d", resp.StatusCode)
 	}
-	if !called {
-		t.Error("Expected execute to be called")
+	if called {
+		t.Error("Expected execute NOT to be called when no secret configured")
 	}
 }
 
 func TestServerUntrackedEventIgnored(t *testing.T) {
+	secret := "test-secret-untracked"
 	var called bool
 
-	handler := NewHandler("", nil, "", func(issue core.Issue) error {
+	handler := NewHandler(secret, nil, "", func(issue core.Issue) error {
 		called = true
 		return nil
 	})
@@ -188,9 +190,11 @@ func TestServerUntrackedEventIgnored(t *testing.T) {
 
 	// "issues.closed" is not a tracked action.
 	payload := makeIssuePayload("closed", 1, "Close it", nil, "org/repo")
+	sig := signPayload(secret, payload)
 
 	req, _ := http.NewRequest("POST", ts.URL+"/webhook", strings.NewReader(string(payload)))
 	req.Header.Set("X-GitHub-Event", "issues")
+	req.Header.Set("X-Hub-Signature-256", sig)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

@@ -1,6 +1,9 @@
 package webhook
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +16,23 @@ import (
 	"github.com/rigdev/rig/internal/config"
 	"github.com/rigdev/rig/internal/core"
 )
+
+const testSecret = "test-webhook-secret"
+
+// signTestPayload computes HMAC-SHA256 for test payloads.
+func signTestPayload(payload []byte) string {
+	mac := hmac.New(sha256.New, []byte(testSecret))
+	mac.Write(payload)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+// newSignedRequest creates a POST request with proper event header and signature.
+func newSignedRequest(url string, payload []byte, event string) *http.Request {
+	req, _ := http.NewRequest("POST", url+"/webhook", strings.NewReader(string(payload)))
+	req.Header.Set("X-GitHub-Event", event)
+	req.Header.Set("X-Hub-Signature-256", signTestPayload(payload))
+	return req
+}
 
 func TestHandlerDuplicateIssueSkipped(t *testing.T) {
 	// Create a temp state file with an in-flight task.
@@ -38,7 +58,7 @@ func TestHandlerDuplicateIssueSkipped(t *testing.T) {
 	}
 
 	var called bool
-	handler := NewHandler("", []config.TriggerConfig{
+	handler := NewHandler(testSecret, []config.TriggerConfig{
 		{Event: "issues.opened"},
 	}, statePath, func(issue core.Issue) error {
 		called = true
@@ -51,9 +71,7 @@ func TestHandlerDuplicateIssueSkipped(t *testing.T) {
 
 	// Send a webhook for issue #99 which is already in-flight.
 	payload := makeIssuePayload("opened", 99, "Duplicate issue", nil, "org/repo")
-
-	req, _ := http.NewRequest("POST", ts.URL+"/webhook", strings.NewReader(string(payload)))
-	req.Header.Set("X-GitHub-Event", "issues")
+	req := newSignedRequest(ts.URL, payload, "issues")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -111,7 +129,7 @@ func TestHandlerLabelFiltering(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var called bool
-			handler := NewHandler("", tt.triggers, "", func(issue core.Issue) error {
+			handler := NewHandler(testSecret, tt.triggers, "", func(issue core.Issue) error {
 				called = true
 				return nil
 			})
@@ -121,9 +139,7 @@ func TestHandlerLabelFiltering(t *testing.T) {
 			defer ts.Close()
 
 			payload := makeIssuePayload("opened", 1, "Test", tt.labels, "org/repo")
-
-			req, _ := http.NewRequest("POST", ts.URL+"/webhook", strings.NewReader(string(payload)))
-			req.Header.Set("X-GitHub-Event", "issues")
+			req := newSignedRequest(ts.URL, payload, "issues")
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -168,7 +184,7 @@ func TestHandlerKeywordFiltering(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var called bool
-			handler := NewHandler("", []config.TriggerConfig{
+			handler := NewHandler(testSecret, []config.TriggerConfig{
 				{Event: "issues.opened", Keyword: tt.keyword},
 			}, "", func(issue core.Issue) error {
 				called = true
@@ -180,9 +196,7 @@ func TestHandlerKeywordFiltering(t *testing.T) {
 			defer ts.Close()
 
 			payload := makeIssuePayload("opened", 1, tt.title, nil, "org/repo")
-
-			req, _ := http.NewRequest("POST", ts.URL+"/webhook", strings.NewReader(string(payload)))
-			req.Header.Set("X-GitHub-Event", "issues")
+			req := newSignedRequest(ts.URL, payload, "issues")
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -199,7 +213,7 @@ func TestHandlerKeywordFiltering(t *testing.T) {
 
 func TestHandlerIssueCommentKeyword(t *testing.T) {
 	var called bool
-	handler := NewHandler("", []config.TriggerConfig{
+	handler := NewHandler(testSecret, []config.TriggerConfig{
 		{Event: "issue_comment.created", Keyword: "/rig"},
 	}, "", func(issue core.Issue) error {
 		called = true
@@ -227,8 +241,7 @@ func TestHandlerIssueCommentKeyword(t *testing.T) {
 		},
 	})
 
-	req, _ := http.NewRequest("POST", ts.URL+"/webhook", strings.NewReader(string(payload)))
-	req.Header.Set("X-GitHub-Event", "issue_comment")
+	req := newSignedRequest(ts.URL, payload, "issue_comment")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -245,7 +258,7 @@ func TestHandlerIssueCommentKeyword(t *testing.T) {
 }
 
 func TestHandlerExecuteError(t *testing.T) {
-	handler := NewHandler("", []config.TriggerConfig{
+	handler := NewHandler(testSecret, []config.TriggerConfig{
 		{Event: "issues.opened"},
 	}, "", func(issue core.Issue) error {
 		return fmt.Errorf("engine error: something broke")
@@ -256,9 +269,7 @@ func TestHandlerExecuteError(t *testing.T) {
 	defer ts.Close()
 
 	payload := makeIssuePayload("opened", 1, "Test", nil, "org/repo")
-
-	req, _ := http.NewRequest("POST", ts.URL+"/webhook", strings.NewReader(string(payload)))
-	req.Header.Set("X-GitHub-Event", "issues")
+	req := newSignedRequest(ts.URL, payload, "issues")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -273,7 +284,7 @@ func TestHandlerExecuteError(t *testing.T) {
 
 func TestHandlerIssueLabeledEvent(t *testing.T) {
 	var called bool
-	handler := NewHandler("", []config.TriggerConfig{
+	handler := NewHandler(testSecret, []config.TriggerConfig{
 		{Event: "issues.labeled", Labels: []string{"rig"}},
 	}, "", func(issue core.Issue) error {
 		called = true
@@ -285,9 +296,7 @@ func TestHandlerIssueLabeledEvent(t *testing.T) {
 	defer ts.Close()
 
 	payload := makeIssuePayload("labeled", 7, "Add feature", []string{"rig"}, "org/repo")
-
-	req, _ := http.NewRequest("POST", ts.URL+"/webhook", strings.NewReader(string(payload)))
-	req.Header.Set("X-GitHub-Event", "issues")
+	req := newSignedRequest(ts.URL, payload, "issues")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -399,7 +408,7 @@ func TestHandlerCompletedTaskNotInFlight(t *testing.T) {
 	}
 
 	var called bool
-	handler := NewHandler("", []config.TriggerConfig{
+	handler := NewHandler(testSecret, []config.TriggerConfig{
 		{Event: "issues.opened"},
 	}, statePath, func(issue core.Issue) error {
 		called = true
@@ -411,9 +420,7 @@ func TestHandlerCompletedTaskNotInFlight(t *testing.T) {
 	defer ts.Close()
 
 	payload := makeIssuePayload("opened", 50, "Reopen work", nil, "org/repo")
-
-	req, _ := http.NewRequest("POST", ts.URL+"/webhook", strings.NewReader(string(payload)))
-	req.Header.Set("X-GitHub-Event", "issues")
+	req := newSignedRequest(ts.URL, payload, "issues")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

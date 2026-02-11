@@ -188,9 +188,8 @@ deploy:
   infra_readonly:
     - "secrets/*.yml"
 
-  # 승인 모드
+  # 승인 설정 (인프라 변경은 항상 사람의 승인 필요)
   approval:
-    mode: manual        # manual | auto | suggest-only
     timeout: 24h        # 승인 대기 타임아웃
 ```
 
@@ -391,13 +390,11 @@ notify:
 2. 설정된 인프라 파일(`infra_files`)을 읽음
 3. 수정안을 생성하여 **Proposal**로 제안
 
-승인 모드에 따라 동작이 달라집니다:
+인프라 변경은 항상 사람의 승인이 필요합니다:
 
-| 모드 | 동작 |
-|------|------|
-| `manual` (기본값) | AI가 제안 → 사람이 승인/거부 → 승인 시 재배포 |
-| `auto` | AI가 제안 → 자동 적용 → 즉시 재배포 |
-| `suggest-only` | AI가 제안만 → 로그에 출력 → 태스크 실패 처리 |
+1. AI가 수정안을 **Proposal**로 생성
+2. 웹 대시보드 또는 CLI에서 Diff 확인
+3. 승인 → 수정 적용 + 재배포 / 거부 → 태스크 실패 처리
 
 ---
 

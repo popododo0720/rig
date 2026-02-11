@@ -220,10 +220,42 @@ func Transition(task *Task, to TaskPhase) error {
 
 // LoadState reads state from the given JSON file path.
 // If the file does not exist, it returns a fresh State with version "1.0".
+// NOTE: For read-modify-write cycles, use WithState instead to prevent races.
 func LoadState(path string) (*State, error) {
 	stateMu.Lock()
 	defer stateMu.Unlock()
 
+	return loadStateUnsafe(path)
+}
+
+// SaveState writes state to the given path using atomic write (tmp + rename).
+func SaveState(s *State, path string) error {
+	stateMu.Lock()
+	defer stateMu.Unlock()
+
+	return saveStateUnsafe(s, path)
+}
+
+// WithState executes fn while holding the state lock, ensuring atomic
+// read-modify-write operations. This prevents race conditions when
+// multiple goroutines access state.json concurrently.
+func WithState(path string, fn func(s *State) error) error {
+	stateMu.Lock()
+	defer stateMu.Unlock()
+
+	s, err := loadStateUnsafe(path)
+	if err != nil {
+		return err
+	}
+
+	if err := fn(s); err != nil {
+		return err
+	}
+
+	return saveStateUnsafe(s, path)
+}
+
+func loadStateUnsafe(path string) (*State, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -239,11 +271,7 @@ func LoadState(path string) (*State, error) {
 	return &s, nil
 }
 
-// SaveState writes state to the given path using atomic write (tmp + rename).
-func SaveState(s *State, path string) error {
-	stateMu.Lock()
-	defer stateMu.Unlock()
-
+func saveStateUnsafe(s *State, path string) error {
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)

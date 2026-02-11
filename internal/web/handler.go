@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -63,8 +64,56 @@ type ExecuteFunc func(issue core.Issue) error
 // If db is provided, settings/agents APIs are enabled.
 // If cfg is nil, the server runs in setup mode (settings only).
 // If execFn is provided, new tasks trigger the automation pipeline.
+// securityHeadersMiddleware adds standard security headers to all responses.
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// apiKeyAuthMiddleware checks for a valid API key if RIG_API_KEY env var is set.
+// If RIG_API_KEY is not set, authentication is skipped (open access).
+// API key can be passed via Authorization header (Bearer <key>) or X-API-Key header.
+func apiKeyAuthMiddleware(next http.Handler) http.Handler {
+	apiKey := os.Getenv("RIG_API_KEY")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if apiKey == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check Authorization: Bearer <key>
+		auth := r.Header.Get("Authorization")
+		if strings.HasPrefix(auth, "Bearer ") && strings.TrimPrefix(auth, "Bearer ") == apiKey {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check X-API-Key header
+		if r.Header.Get("X-API-Key") == apiKey {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check query param for SSE/browser convenience
+		if r.URL.Query().Get("api_key") == apiKey {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+	})
+}
+
 func NewHandler(statePath string, cfg *config.Config, db *storage.DB, execFn ...ExecuteFunc) http.Handler {
 	r := chi.NewRouter()
+
+	// Security headers on all responses
+	r.Use(securityHeadersMiddleware)
 
 	configured := cfg != nil
 
@@ -75,6 +124,8 @@ func NewHandler(statePath string, cfg *config.Config, db *storage.DB, execFn ...
 
 	// --- API routes ---
 	r.Route("/api", func(r chi.Router) {
+		// API key auth on all API routes (if RIG_API_KEY is set)
+		r.Use(apiKeyAuthMiddleware)
 		// Always available: settings, agents, status
 		if db != nil {
 			r.Get("/settings", handleGetSettings(db))

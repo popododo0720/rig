@@ -123,7 +123,8 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 // verifySignature checks the HMAC-SHA256 signature from GitHub.
 func (h *Handler) verifySignature(body []byte, signature string) bool {
 	if h.secret == "" {
-		return true // No secret configured, skip verification.
+		log.Println("[webhook] WARNING: no webhook secret configured — rejecting request for safety")
+		return false // Reject if no secret configured — require explicit opt-in.
 	}
 
 	if signature == "" {

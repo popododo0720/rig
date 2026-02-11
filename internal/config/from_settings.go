@@ -7,61 +7,49 @@ import (
 
 // FromSettings reconstructs a Config from a settings key-value map.
 // Each key corresponds to a config section, and each value is a JSON blob.
+// Environment variables in ${VAR} format are resolved before parsing.
 func FromSettings(settings map[string]string) (*Config, error) {
 	cfg := &Config{}
 
-	if v, ok := settings["project"]; ok && v != "" {
-		if err := json.Unmarshal([]byte(v), &cfg.Project); err != nil {
-			return nil, fmt.Errorf("parse project settings: %w", err)
+	// unmarshalSection resolves env vars in the JSON blob before unmarshalling.
+	unmarshalSection := func(key string, target interface{}) error {
+		v, ok := settings[key]
+		if !ok || v == "" {
+			return nil
 		}
+		resolved := ResolveEnvVars(v)
+		if err := json.Unmarshal([]byte(resolved), target); err != nil {
+			return fmt.Errorf("parse %s settings: %w", key, err)
+		}
+		return nil
 	}
 
-	if v, ok := settings["source"]; ok && v != "" {
-		if err := json.Unmarshal([]byte(v), &cfg.Source); err != nil {
-			return nil, fmt.Errorf("parse source settings: %w", err)
-		}
+	if err := unmarshalSection("project", &cfg.Project); err != nil {
+		return nil, err
 	}
-
-	if v, ok := settings["ai"]; ok && v != "" {
-		if err := json.Unmarshal([]byte(v), &cfg.AI); err != nil {
-			return nil, fmt.Errorf("parse ai settings: %w", err)
-		}
+	if err := unmarshalSection("source", &cfg.Source); err != nil {
+		return nil, err
 	}
-
-	if v, ok := settings["deploy"]; ok && v != "" {
-		if err := json.Unmarshal([]byte(v), &cfg.Deploy); err != nil {
-			return nil, fmt.Errorf("parse deploy settings: %w", err)
-		}
+	if err := unmarshalSection("ai", &cfg.AI); err != nil {
+		return nil, err
 	}
-
-	if v, ok := settings["test"]; ok && v != "" {
-		if err := json.Unmarshal([]byte(v), &cfg.Test); err != nil {
-			return nil, fmt.Errorf("parse test settings: %w", err)
-		}
+	if err := unmarshalSection("deploy", &cfg.Deploy); err != nil {
+		return nil, err
 	}
-
-	if v, ok := settings["workflow"]; ok && v != "" {
-		if err := json.Unmarshal([]byte(v), &cfg.Workflow); err != nil {
-			return nil, fmt.Errorf("parse workflow settings: %w", err)
-		}
+	if err := unmarshalSection("test", &cfg.Test); err != nil {
+		return nil, err
 	}
-
-	if v, ok := settings["notify"]; ok && v != "" {
-		if err := json.Unmarshal([]byte(v), &cfg.Notify); err != nil {
-			return nil, fmt.Errorf("parse notify settings: %w", err)
-		}
+	if err := unmarshalSection("workflow", &cfg.Workflow); err != nil {
+		return nil, err
 	}
-
-	if v, ok := settings["server"]; ok && v != "" {
-		if err := json.Unmarshal([]byte(v), &cfg.Server); err != nil {
-			return nil, fmt.Errorf("parse server settings: %w", err)
-		}
+	if err := unmarshalSection("notify", &cfg.Notify); err != nil {
+		return nil, err
 	}
-
-	if v, ok := settings["projects"]; ok && v != "" {
-		if err := json.Unmarshal([]byte(v), &cfg.Projects); err != nil {
-			return nil, fmt.Errorf("parse projects settings: %w", err)
-		}
+	if err := unmarshalSection("server", &cfg.Server); err != nil {
+		return nil, err
+	}
+	if err := unmarshalSection("projects", &cfg.Projects); err != nil {
+		return nil, err
 	}
 
 	return cfg, nil

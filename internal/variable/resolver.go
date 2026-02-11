@@ -4,15 +4,36 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"strings"
 
 	"github.com/rigdev/rig/internal/config"
 )
 
 var varPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
 
+// shellUnsafeChars are characters that could enable shell injection.
+var shellUnsafeChars = strings.NewReplacer(
+	"`", "",
+	"$", "",
+	"!", "",
+	"&", "",
+	"|", "",
+	";", "",
+	"\n", " ",
+	"\r", "",
+)
+
+// sanitizeForShell strips dangerous shell metacharacters from variable values
+// that will be interpolated into shell commands.
+func sanitizeForShell(val string) string {
+	return shellUnsafeChars.Replace(val)
+}
+
 // Resolve replaces ${VAR_NAME} patterns in template with values from vars map.
 // If a variable is not found in vars, it checks os.Getenv as fallback.
 // If still not found, the original ${VAR_NAME} is preserved.
+// Values from the vars map (user-controlled inputs like issue titles) are
+// sanitized to prevent shell injection.
 func Resolve(template string, vars map[string]string) string {
 	return varPattern.ReplaceAllStringFunc(template, func(match string) string {
 		// Extract variable name from ${...}
@@ -22,20 +43,20 @@ func Resolve(template string, vars map[string]string) string {
 		if len(varName) > 4 && varName[:4] == "env:" {
 			envVar := varName[4:]
 			if val, ok := vars[envVar]; ok {
-				return val
+				return sanitizeForShell(val)
 			}
 			if val := os.Getenv(envVar); val != "" {
-				return val
+				return val // env vars are trusted
 			}
 			return match
 		}
 
-		// Regular variable lookup
+		// Regular variable lookup — sanitize since vars may contain user input
 		if val, ok := vars[varName]; ok {
-			return val
+			return sanitizeForShell(val)
 		}
 
-		// Fallback to environment variable
+		// Fallback to environment variable — trusted source, no sanitization
 		if val := os.Getenv(varName); val != "" {
 			return val
 		}

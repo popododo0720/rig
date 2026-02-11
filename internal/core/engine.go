@@ -462,7 +462,25 @@ func convertDeployFixChanges(proposedFix *AIProposedFix, beforeFiles map[string]
 }
 
 func applyProposalChanges(changes []ProposedChange) error {
+	// Determine safe base directory for file writes.
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("determine working directory: %w", err)
+	}
+
 	for _, change := range changes {
+		// Validate path: must be relative, no traversal, within cwd.
+		if filepath.IsAbs(change.Path) || strings.Contains(change.Path, "..") {
+			return fmt.Errorf("blocked path %q: absolute or traversal path", change.Path)
+		}
+		absPath, err := filepath.Abs(change.Path)
+		if err != nil {
+			return fmt.Errorf("resolve path %q: %w", change.Path, err)
+		}
+		if !strings.HasPrefix(absPath, cwd+string(filepath.Separator)) && absPath != cwd {
+			return fmt.Errorf("blocked path %q: outside working directory", change.Path)
+		}
+
 		switch change.Action {
 		case "create", "modify":
 			dir := filepath.Dir(change.Path)
@@ -502,7 +520,6 @@ func proposedChangesToAIFileChanges(changes []ProposedChange) []AIFileChange {
 	}
 	return out
 }
-
 
 // completeTask transitions to reporting, creates a PR, then completes.
 func (e *Engine) completeTask(ctx context.Context, state *State, task *Task) error {
