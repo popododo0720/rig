@@ -173,7 +173,11 @@ func NewHandler(statePath string, cfg *config.Config, db *storage.DB, execFn ...
 	// --- Static SPA files ---
 	staticSub, err := fs.Sub(staticFS, "static")
 	if err != nil {
-		log.Fatalf("web: failed to create sub-filesystem: %v", err)
+		log.Printf("web: CRITICAL: failed to create sub-filesystem: %v", err)
+		r.Handle("/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "internal server error: static files unavailable", http.StatusInternalServerError)
+		}))
+		return r
 	}
 	fileServer := http.FileServer(http.FS(staticSub))
 	r.Handle("/*", fileServer)

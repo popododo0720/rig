@@ -120,6 +120,11 @@ func stepGenerate(ctx context.Context, aiAdapter AIAdapter, plan *AIPlan, repoFi
 	return changes, nil
 }
 
+// CommitSHAResolver returns the current HEAD commit SHA. Implemented by GitAdapter.
+type CommitSHAResolver interface {
+	GetHeadSHA(ctx context.Context) (string, error)
+}
+
 // stepCommit creates a branch, commits, and pushes changes.
 func stepCommit(ctx context.Context, gitAdapter GitAdapter, branch string, changes []AIFileChange, issueTitle string) (string, error) {
 	if err := gitAdapter.CreateBranch(ctx, branch); err != nil {
@@ -141,7 +146,13 @@ func stepCommit(ctx context.Context, gitAdapter GitAdapter, branch string, chang
 		return "", fmt.Errorf("commit and push: %w", err)
 	}
 
-	// Return a placeholder commit SHA — the real SHA would come from git.
+	// Retrieve actual commit SHA if the adapter supports it.
+	if resolver, ok := gitAdapter.(CommitSHAResolver); ok {
+		sha, err := resolver.GetHeadSHA(ctx)
+		if err == nil && sha != "" {
+			return sha, nil
+		}
+	}
 	return "HEAD", nil
 }
 

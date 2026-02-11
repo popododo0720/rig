@@ -306,6 +306,15 @@ func (g *GitHubAdapter) CleanupBranch(ctx context.Context, branchName string) {
 	g.gitCmd(ctx, "push", "origin", "--delete", branchName)
 }
 
+// GetHeadSHA returns the current HEAD commit SHA.
+func (g *GitHubAdapter) GetHeadSHA(ctx context.Context) (string, error) {
+	out, err := g.gitCmd(ctx, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // gitCmd runs a git command in the workspace directory.
 func (g *GitHubAdapter) gitCmd(ctx context.Context, args ...string) (string, error) {
 	c := exec.CommandContext(ctx, "git", args...)

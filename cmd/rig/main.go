@@ -68,7 +68,7 @@ func main() {
 
 	initCmd.Flags().String("template", "custom", "Template type (custom|docker)")
 
-	logsCmd.Flags().BoolP("follow", "f", false, "Follow logs (not yet implemented)")
+	logsCmd.Flags().BoolP("follow", "f", false, "Follow logs in real-time (polls every 2s)")
 
 	migrateCmd.Flags().StringP("config", "c", "", "Path to config file (default: rig.yaml)")
 	migrateCmd.Flags().String("state", "", "Path to state file (default: .rig/state.json)")
@@ -81,6 +81,7 @@ func main() {
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(logsCmd)
+	rootCmd.AddCommand(explainCmd)
 	rootCmd.AddCommand(proposalsCmd)
 	rootCmd.AddCommand(approveCmd)
 	rootCmd.AddCommand(rejectCmd)

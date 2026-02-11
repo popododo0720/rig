@@ -25,9 +25,16 @@ var execCmd = &cobra.Command{
 		issueURL := args[0]
 		configPath, _ := cmd.Flags().GetString("config")
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		step, _ := cmd.Flags().GetString("step")
 
 		if configPath == "" {
 			configPath = "rig.yaml"
+		}
+
+		// Validate --step flag if provided.
+		validSteps := map[string]bool{"code": true, "deploy": true, "test": true}
+		if step != "" && !validSteps[step] {
+			return fmt.Errorf("invalid --step %q: must be one of code, deploy, test", step)
 		}
 
 		// Parse issue URL to extract metadata.
@@ -36,10 +43,16 @@ var execCmd = &cobra.Command{
 			return fmt.Errorf("invalid issue URL: %w", err)
 		}
 
-		// Load configuration.
+		// Load configuration and apply step filter to workflow.
 		cfg, err := config.LoadConfig(configPath)
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
+		}
+
+		// If --step is provided, restrict workflow to only that step.
+		if step != "" {
+			cfg.Workflow.Steps = []string{step}
+			fmt.Printf("Running only step: %s\n", step)
 		}
 
 		issueNumber, err := strconv.Atoi(issue.ID)
@@ -108,6 +121,11 @@ func buildEngineForIssue(cfg *config.Config, statePath string, issueNumber int) 
 
 	notifiers := make([]core.NotifierIface, 0, len(cfg.Notify))
 	for _, notifyCfg := range cfg.Notify {
+		if (notifyCfg.Type == "slack" || notifyCfg.Type == "discord") && notifyCfg.Webhook != "" {
+			notifiers = append(notifiers, adapternotify.NewWebhookNotifier(notifyCfg.Type, notifyCfg.Webhook))
+			continue
+		}
+
 		if notifyCfg.Type != "comment" {
 			continue
 		}

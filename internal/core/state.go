@@ -110,9 +110,10 @@ type Proposal struct {
 type ProposalType string
 
 const (
-	ProposalDeployFix ProposalType = "deploy_fix"
-	ProposalTestFix   ProposalType = "test_fix"
-	ProposalInfraFix  ProposalType = "infra_fix"
+	ProposalDeployFix      ProposalType = "deploy_fix"
+	ProposalTestFix        ProposalType = "test_fix"
+	ProposalInfraFix       ProposalType = "infra_fix"
+	ProposalDeployApproval ProposalType = "deploy_approval"
 )
 
 // ProposalStatus tracks the lifecycle of a proposal.

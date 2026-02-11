@@ -181,8 +181,32 @@ func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 	task.CompletePipelineStep(PhaseCommitting, "success", "changes committed", "")
 	vars["COMMIT_SHA"] = commitSHA
 
+	// Check if before_deploy approval is required.
+	if e.cfg.Workflow.Approval.BeforeDeploy {
+		task.AddPipelineStep(PhaseApproval, "running")
+		e.notifyPhase(ctx, task, PhaseApproval)
+
+		// Create a proposal for pre-deploy approval.
+		task.AddProposal(ProposalDeployApproval, "Pre-deploy approval required",
+			"Workflow config requires human approval before deployment",
+			[]ProposedChange{{Path: "deploy", Action: "approve", Reason: "before_deploy approval gate"}})
+
+		if err := Transition(task, PhaseAwaitingApproval); err != nil {
+			task.CompletePipelineStep(PhaseApproval, "failed", "", err.Error())
+			completeAttempt(&attempt, "failed", ReasonInfra)
+			task.Attempts = append(task.Attempts, attempt)
+			return e.failTask(ctx, state, task, ReasonInfra, err)
+		}
+		task.CompletePipelineStep(PhaseApproval, "success", "awaiting human approval before deploy", "")
+
+		if err := SaveState(state, e.statePath); err != nil {
+			return fmt.Errorf("save state: %w", err)
+		}
+		e.taskLog(task.ID, "info", "Waiting for human approval before deployment")
+		return ErrAwaitingApproval
+	}
 	task.AddPipelineStep(PhaseApproval, "running")
-	task.CompletePipelineStep(PhaseApproval, "skipped", "auto approval step skipped", "")
+	task.CompletePipelineStep(PhaseApproval, "skipped", "before_deploy approval not required", "")
 
 	if err := Transition(task, PhaseDeploying); err != nil {
 		completeAttempt(&attempt, "failed", ReasonDeploy)
