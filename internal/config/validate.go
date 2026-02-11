@@ -40,7 +40,8 @@ func Validate(cfg *Config) error {
 	if cfg.AI.Provider == "" {
 		errs = append(errs, "config: ai.provider is required")
 	}
-	if cfg.AI.Model == "" {
+	// claude-code provider uses CLI, so model is optional.
+	if cfg.AI.Model == "" && cfg.AI.Provider != "claude-code" {
 		errs = append(errs, "config: ai.model is required")
 	}
 	if cfg.Deploy.Method == "" {

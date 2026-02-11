@@ -179,8 +179,21 @@ func (g *GitHubAdapter) PostComment(ctx context.Context, owner, repo string, num
 
 // CreateBranch creates a new git branch in the local workspace.
 func (g *GitHubAdapter) CreateBranch(ctx context.Context, branchName string) error {
+	// If the branch already exists (e.g. from a previous failed run), delete it first.
 	if _, err := g.gitCmd(ctx, "checkout", "-b", branchName); err != nil {
-		return fmt.Errorf("create branch %q: %w", branchName, err)
+		// Detect current default branch, switch to it, delete old branch, then recreate.
+		base := "main"
+		if out, e := g.gitCmd(ctx, "symbolic-ref", "refs/remotes/origin/HEAD", "--short"); e == nil {
+			parts := strings.SplitN(strings.TrimSpace(out), "/", 2)
+			if len(parts) == 2 {
+				base = parts[1]
+			}
+		}
+		g.gitCmd(ctx, "checkout", base)
+		g.gitCmd(ctx, "branch", "-D", branchName)
+		if _, err2 := g.gitCmd(ctx, "checkout", "-b", branchName); err2 != nil {
+			return fmt.Errorf("create branch %q: %w", branchName, err2)
+		}
 	}
 	return nil
 }
@@ -274,6 +287,23 @@ func (g *GitHubAdapter) CloneOrPull(ctx context.Context, owner, repo, token stri
 	}
 
 	return nil
+}
+
+// Cleanup removes the local workspace directory.
+func (g *GitHubAdapter) Cleanup() error {
+	if g.workspace == "" {
+		return nil
+	}
+	return os.RemoveAll(g.workspace)
+}
+
+// CleanupBranch deletes a remote branch (best-effort, ignores errors).
+func (g *GitHubAdapter) CleanupBranch(ctx context.Context, branchName string) {
+	if g.workspace == "" || branchName == "" {
+		return
+	}
+	// Delete remote branch; ignore errors (it may not have been pushed).
+	g.gitCmd(ctx, "push", "origin", "--delete", branchName)
 }
 
 // gitCmd runs a git command in the workspace directory.

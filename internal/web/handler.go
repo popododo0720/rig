@@ -3,6 +3,8 @@ package web
 import (
 	"embed"
 	"encoding/json"
+	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/rigdev/rig/internal/config"
 	"github.com/rigdev/rig/internal/core"
+	"github.com/rigdev/rig/internal/storage"
 )
 
 //go:embed static/*
@@ -53,22 +56,67 @@ type workflowInfo struct {
 	Triggers []config.TriggerConfig `json:"triggers"`
 }
 
+// ExecuteFunc is a callback that executes the automation pipeline for an issue.
+type ExecuteFunc func(issue core.Issue) error
+
 // NewHandler creates an http.Handler that serves the web dashboard API and SPA.
-func NewHandler(statePath string, cfg *config.Config) http.Handler {
+// If db is provided, settings/agents APIs are enabled.
+// If cfg is nil, the server runs in setup mode (settings only).
+// If execFn is provided, new tasks trigger the automation pipeline.
+func NewHandler(statePath string, cfg *config.Config, db *storage.DB, execFn ...ExecuteFunc) http.Handler {
 	r := chi.NewRouter()
+
+	configured := cfg != nil
+
+	var executeFn ExecuteFunc
+	if len(execFn) > 0 && execFn[0] != nil {
+		executeFn = execFn[0]
+	}
 
 	// --- API routes ---
 	r.Route("/api", func(r chi.Router) {
-		r.Get("/tasks", handleGetTasks(statePath))
-		r.Post("/tasks", handleCreateTask(statePath, cfg))
-		r.Get("/tasks/{id}", handleGetTask(statePath))
-		r.Get("/proposals", handleGetProposals(statePath))
-		r.Get("/proposals/{taskId}", handleGetTaskProposals(statePath))
-		r.Post("/approve/{taskId}", handleApprove(statePath, cfg))
-		r.Post("/reject/{taskId}", handleReject(statePath))
-		r.Get("/config", handleGetConfig(cfg))
-		r.Get("/projects", handleGetProjects(cfg))
-		r.Get("/events", handleSSE(statePath))
+		// Always available: settings, agents, status
+		if db != nil {
+			r.Get("/settings", handleGetSettings(db))
+			r.Post("/settings", handleSaveSettings(db))
+			r.Get("/agents/{repo}", handleGetAgents(db))
+			r.Post("/agents/{repo}", handleSaveAgents(db))
+			r.Get("/agents", handleListAgents(db))
+		}
+		r.Get("/status", handleGetStatus(configured))
+
+		// Task/proposal routes require config (full mode)
+		if configured {
+			r.Get("/tasks", handleGetTasks(statePath))
+			r.Post("/tasks", handleCreateTask(statePath, cfg, executeFn))
+			r.Post("/tasks/{id}/retry", handleRetryTask(statePath, executeFn))
+			r.Post("/tasks/{id}/stop", handleStopTask(statePath))
+			if db != nil {
+				r.Get("/tasks/{id}/logs", handleGetTaskLogs(db))
+			}
+			r.Get("/tasks/{id}", handleGetTask(statePath))
+			r.Get("/proposals", handleGetProposals(statePath))
+			r.Get("/proposals/{taskId}", handleGetTaskProposals(statePath))
+			r.Post("/approve/{taskId}", handleApprove(statePath, cfg))
+			r.Post("/reject/{taskId}", handleReject(statePath))
+			r.Get("/config", handleGetConfig(cfg))
+			r.Get("/projects", handleGetProjects(cfg))
+			r.Get("/events", handleSSE(statePath))
+		} else {
+			// Setup mode: return 503 for task routes
+			setupHandler := func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+					"error": "rig not configured — visit Settings to set up",
+				})
+			}
+			r.Get("/tasks", http.HandlerFunc(setupHandler))
+			r.Get("/tasks/{id}", http.HandlerFunc(setupHandler))
+			r.Post("/tasks", http.HandlerFunc(setupHandler))
+			r.Get("/proposals", http.HandlerFunc(setupHandler))
+			r.Get("/events", http.HandlerFunc(setupHandler))
+			r.Get("/config", http.HandlerFunc(setupHandler))
+			r.Get("/projects", http.HandlerFunc(setupHandler))
+		}
 	})
 
 	// --- Static SPA files ---
@@ -224,7 +272,7 @@ func parseIssueURL(url string) *issueURLParts {
 	return &parts
 }
 
-func handleCreateTask(statePath string, cfg *config.Config) http.HandlerFunc {
+func handleCreateTask(statePath string, cfg *config.Config, executeFn ExecuteFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createTaskRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -307,7 +355,101 @@ func handleCreateTask(statePath string, cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
+		// 태스크 생성 후 바로 엔진 실행 (백그라운드)
+		if executeFn != nil {
+			go func() {
+				if err := executeFn(issue); err != nil {
+					log.Printf("web: execute task %s failed: %v", task.ID, err)
+				}
+			}()
+		}
+
 		writeJSON(w, http.StatusCreated, task)
+	}
+}
+
+func handleRetryTask(statePath string, executeFn ExecuteFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+
+		state, err := core.LoadState(statePath)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		task := state.GetTaskByID(id)
+		if task == nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			return
+		}
+
+		if executeFn == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "execution not available"})
+			return
+		}
+
+		go func() {
+			if err := executeFn(task.Issue); err != nil {
+				log.Printf("web: retry task %s failed: %v", task.ID, err)
+			}
+		}()
+
+		writeJSON(w, http.StatusOK, map[string]string{"status": "started", "task_id": task.ID})
+	}
+}
+
+func handleStopTask(statePath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+
+		state, err := core.LoadState(statePath)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		task := state.GetTaskByID(id)
+		if task == nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			return
+		}
+
+		if err := core.Transition(task, core.PhaseFailed); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+
+		if err := core.SaveState(state, statePath); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{"status": "stopped", "task_id": task.ID})
+	}
+}
+
+func handleGetTaskLogs(db *storage.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		afterStr := r.URL.Query().Get("after")
+		var logs []storage.LogEntry
+		var err error
+		if afterStr != "" {
+			var afterID int64
+			fmt.Sscanf(afterStr, "%d", &afterID)
+			logs, err = db.GetLogsSince(id, afterID)
+		} else {
+			logs, err = db.GetLogs(id)
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if logs == nil {
+			logs = []storage.LogEntry{}
+		}
+		writeJSON(w, http.StatusOK, logs)
 	}
 }
 
@@ -563,5 +705,215 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		log.Printf("web: JSON encode error: %v", err)
+	}
+}
+
+// --- Settings API ---
+
+var sensitiveFields = map[string][]string{
+	"source": {"token"},
+	"ai":     {"api_key"},
+	"server": {"secret"},
+}
+
+func handleGetStatus(configured bool) http.HandlerFunc {
+	mode := "full"
+	if !configured {
+		mode = "setup"
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"configured": configured,
+			"mode":       mode,
+		})
+	}
+}
+
+func handleGetSettings(db *storage.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		settings, err := db.GetAllSettings()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		// Parse each section into a generic map and mask sensitive fields.
+		result := make(map[string]interface{})
+		for key, value := range settings {
+			var parsed interface{}
+			if err := json.Unmarshal([]byte(value), &parsed); err != nil {
+				result[key] = value
+				continue
+			}
+			if m, ok := parsed.(map[string]interface{}); ok {
+				maskFields(key, m)
+			}
+			result[key] = parsed
+		}
+
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+type saveSettingsRequest struct {
+	Section string          `json:"section"`
+	Data    json.RawMessage `json:"data"`
+}
+
+func handleSaveSettings(db *storage.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "read body failed"})
+			return
+		}
+
+		var req saveSettingsRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+			return
+		}
+
+		if req.Section != "" {
+			// Single section save.
+			merged, err := mergeWithExisting(db, req.Section, req.Data)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			if err := db.SetSetting(req.Section, string(merged)); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+		} else {
+			// Bulk save: data is a map of sections.
+			var sections map[string]json.RawMessage
+			if err := json.Unmarshal(req.Data, &sections); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "data must be a section map when section is empty"})
+				return
+			}
+			for section, data := range sections {
+				merged, err := mergeWithExisting(db, section, data)
+				if err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+					return
+				}
+				if err := db.SetSetting(section, string(merged)); err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+					return
+				}
+			}
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+	}
+}
+
+// mergeWithExisting preserves sensitive field values when the incoming value is "***".
+func mergeWithExisting(db *storage.DB, section string, incoming json.RawMessage) (json.RawMessage, error) {
+	fields, hasSensitive := sensitiveFields[section]
+	if !hasSensitive {
+		return incoming, nil
+	}
+
+	var incomingMap map[string]interface{}
+	if err := json.Unmarshal(incoming, &incomingMap); err != nil {
+		return incoming, nil // not a map, store as-is
+	}
+
+	needsMerge := false
+	for _, field := range fields {
+		if v, ok := incomingMap[field]; ok {
+			if s, ok := v.(string); ok && s == "***" {
+				needsMerge = true
+				break
+			}
+		}
+	}
+
+	if !needsMerge {
+		return incoming, nil
+	}
+
+	existing, err := db.GetSetting(section)
+	if err != nil || existing == "" {
+		return incoming, nil
+	}
+
+	var existingMap map[string]interface{}
+	if err := json.Unmarshal([]byte(existing), &existingMap); err != nil {
+		return incoming, nil
+	}
+
+	for _, field := range fields {
+		if v, ok := incomingMap[field]; ok {
+			if s, ok := v.(string); ok && s == "***" {
+				if orig, ok := existingMap[field]; ok {
+					incomingMap[field] = orig
+				}
+			}
+		}
+	}
+
+	return json.Marshal(incomingMap)
+}
+
+func maskFields(section string, m map[string]interface{}) {
+	fields, ok := sensitiveFields[section]
+	if !ok {
+		return
+	}
+	for _, field := range fields {
+		if v, ok := m[field]; ok {
+			if s, ok := v.(string); ok && s != "" {
+				m[field] = "***"
+			}
+		}
+	}
+}
+
+// --- Agents API ---
+
+func handleGetAgents(db *storage.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo := chi.URLParam(r, "repo")
+		content, err := db.GetAgents(repo)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"repo": repo, "content": content})
+	}
+}
+
+func handleSaveAgents(db *storage.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo := chi.URLParam(r, "repo")
+
+		var req struct {
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+			return
+		}
+
+		if err := db.SetAgents(repo, req.Content); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+	}
+}
+
+func handleListAgents(db *storage.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		agents, err := db.ListAgents()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, agents)
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rigdev/rig/internal/config"
+	"github.com/rigdev/rig/internal/storage"
 	"github.com/rigdev/rig/internal/web"
 	"github.com/spf13/cobra"
 )
@@ -21,16 +21,20 @@ var webCmd = &cobra.Command{
 		configPath, _ := cmd.Flags().GetString("config")
 		port, _ := cmd.Flags().GetInt("port")
 
-		if configPath == "" {
-			configPath = "rig.yaml"
+		// Open SQLite database for settings/agents APIs.
+		db, err := storage.Open(defaultDBPath())
+		if err != nil {
+			return fmt.Errorf("open database: %w", err)
 		}
+		defer db.Close()
 
-		cfg, err := config.LoadConfig(configPath)
+		// Load config: SQLite settings → rig.yaml → setup mode.
+		cfg, err := loadConfigFromSources(db, configPath)
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}
 
-		handler := web.NewHandler(defaultStatePath, cfg)
+		handler := web.NewHandler(defaultStatePath, cfg, db)
 
 		srv := &http.Server{
 			Addr:         fmt.Sprintf(":%d", port),

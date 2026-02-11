@@ -72,6 +72,8 @@ type GitAdapter interface {
 	CommitAndPush(ctx context.Context, changes []GitFileChange, message string) error
 	CreatePR(ctx context.Context, base, head, title, body string) (*GitPullRequest, error)
 	CloneOrPull(ctx context.Context, owner, repo, token string) error
+	Cleanup() error
+	CleanupBranch(ctx context.Context, branchName string)
 }
 
 // AdapterDeployResult holds the outcome of a deploy operation.

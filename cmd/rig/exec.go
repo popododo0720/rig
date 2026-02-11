@@ -129,6 +129,8 @@ func newAIAdapter(cfg config.AIConfig) (core.AIAdapter, error) {
 		return adapterai.NewOpenAI(cfg)
 	case "ollama":
 		return adapterai.NewOllama(cfg)
+	case "claude-code":
+		return adapterai.NewClaudeCode(cfg)
 	default:
 		return nil, fmt.Errorf("unsupported ai provider %q: supported providers are anthropic, openai, ollama", cfg.Provider)
 	}

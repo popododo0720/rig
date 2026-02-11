@@ -23,11 +23,15 @@ func retryLoop(
 
 	for {
 		retryCount++
-		if retryCount > maxRetry {
+		if maxRetry > 0 && retryCount > maxRetry {
 			return fmt.Errorf("max retry count (%d) exceeded", maxRetry)
 		}
 
-		log.Printf("[engine] retry %d/%d for task %s", retryCount, maxRetry, task.ID)
+		if maxRetry > 0 {
+			log.Printf("[engine] retry %d/%d for task %s", retryCount, maxRetry, task.ID)
+		} else {
+			log.Printf("[engine] retry %d (unlimited) for task %s", retryCount, task.ID)
+		}
 
 		failureLogs := collectTestOutput(testResults)
 

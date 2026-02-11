@@ -86,6 +86,12 @@ func (m *mockGit) CloneOrPull(ctx context.Context, owner, repo, token string) er
 	return nil
 }
 
+func (m *mockGit) Cleanup() error {
+	return nil
+}
+
+func (m *mockGit) CleanupBranch(ctx context.Context, branchName string) {}
+
 type mockDeploy struct {
 	deploySuccess bool
 	deployErr     error

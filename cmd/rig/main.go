@@ -59,12 +59,19 @@ func main() {
 	webCmd.Flags().StringP("config", "c", "", "Path to config file")
 	webCmd.Flags().Int("port", 3000, "Dashboard server port")
 
+	serveCmd.Flags().StringP("config", "c", "", "Path to config file")
+	serveCmd.Flags().Int("web-port", 3000, "Dashboard server port")
+	serveCmd.Flags().Int("webhook-port", 0, "Webhook server port (default: from config or 8080)")
+
 	approveCmd.Flags().StringP("config", "c", "rig.yaml", "Path to config file")
 	rejectCmd.Flags().StringP("config", "c", "rig.yaml", "Path to config file")
 
 	initCmd.Flags().String("template", "custom", "Template type (custom|docker)")
 
 	logsCmd.Flags().BoolP("follow", "f", false, "Follow logs (not yet implemented)")
+
+	migrateCmd.Flags().StringP("config", "c", "", "Path to config file (default: rig.yaml)")
+	migrateCmd.Flags().String("state", "", "Path to state file (default: .rig/state.json)")
 
 	// Register all commands.
 	rootCmd.AddCommand(versionCmd)
@@ -79,6 +86,8 @@ func main() {
 	rootCmd.AddCommand(rejectCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(webCmd)
+	rootCmd.AddCommand(serveCmd)
+	rootCmd.AddCommand(migrateCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

@@ -126,7 +126,8 @@ func TestRetryLoop_MaxRetryExceeded(t *testing.T) {
 	}
 }
 
-func TestRetryLoop_MaxRetryZero(t *testing.T) {
+func TestRetryLoop_MaxRetryZero_Unlimited(t *testing.T) {
+	// max_retry=0 means unlimited retries. Test that it retries until tests pass.
 	analyzeCalls := 0
 	aiMock := &mockAI{
 		failureFunc: func(ctx context.Context, logs string, currentCode map[string]string) ([]AIFileChange, error) {
@@ -141,17 +142,18 @@ func TestRetryLoop_MaxRetryZero(t *testing.T) {
 	engine, task, _, vars, initialResults, initialChanges := newRetryTestHarness(t, 0, aiMock, gitMock, deployMock, testRunner)
 
 	err := retryLoop(context.Background(), engine, task, vars, initialResults, initialChanges, 0)
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	if err != nil {
+		t.Fatalf("expected nil error (unlimited retry should succeed), got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "max retry count (0) exceeded") {
-		t.Fatalf("expected max retry zero error, got: %v", err)
+	if analyzeCalls != 1 {
+		t.Fatalf("expected AnalyzeFailure called once, got %d", analyzeCalls)
 	}
-	if len(task.Attempts) != 1 {
-		t.Fatalf("expected attempts to remain 1, got %d", len(task.Attempts))
+	if len(task.Attempts) != 2 {
+		t.Fatalf("expected 2 attempts, got %d", len(task.Attempts))
 	}
-	if analyzeCalls != 0 {
-		t.Fatalf("expected AnalyzeFailure not called, got %d", analyzeCalls)
+	last := task.Attempts[1]
+	if last.Status != "passed" {
+		t.Fatalf("expected last attempt status passed, got %s", last.Status)
 	}
 }
 

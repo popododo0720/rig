@@ -15,9 +15,13 @@ import (
 
 var ErrAwaitingApproval = errors.New("task awaiting approval")
 
-const defaultMaxRetry = 3
+// defaultMaxRetry of 0 means unlimited retries (code changes retry until tests pass).
+const defaultMaxRetry = 0
 
 type deployFailureAnalysisContextKey struct{}
+
+// LogFunc is an optional callback for per-task logging.
+type LogFunc func(taskID, level, message string)
 
 // Engine orchestrates the full execution cycle: issue -> code -> deploy -> test -> PR.
 type Engine struct {
@@ -29,6 +33,7 @@ type Engine struct {
 	notifiers   []NotifierIface
 	statePath   string
 	dryRun      bool
+	logFn       LogFunc
 }
 
 // NewEngine creates a new Engine with all adapter dependencies injected.
@@ -53,6 +58,19 @@ func NewEngine(
 }
 
 // SetDryRun enables dry-run mode (no state mutation, no real execution).
+// SetLogFunc sets an optional per-task log callback.
+func (e *Engine) SetLogFunc(fn LogFunc) {
+	e.logFn = fn
+}
+
+// taskLog logs a message both to stdout and to the optional log callback.
+func (e *Engine) taskLog(taskID, level, msg string) {
+	log.Printf("[engine] [%s] %s", level, msg)
+	if e.logFn != nil {
+		e.logFn(taskID, level, msg)
+	}
+}
+
 func (e *Engine) SetDryRun(dryRun bool) {
 	e.dryRun = dryRun
 }
@@ -67,7 +85,7 @@ func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 	}
 
 	task := state.CreateTask(issue)
-	log.Printf("[engine] created task %s in phase %s", task.ID, task.Status)
+	e.taskLog(task.ID, "info", fmt.Sprintf("Task created for issue #%s: %s", issue.ID, issue.Title))
 	task.AddPipelineStep(PhaseQueued, "running")
 	e.notifyPhase(ctx, task, PhaseQueued)
 	task.CompletePipelineStep(PhaseQueued, "success", "task queued", "")
@@ -95,11 +113,14 @@ func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 		URL:   issue.URL,
 	}
 	projectCtx := strings.Join(e.cfg.AI.Context, "\n")
+	e.taskLog(task.ID, "info", "Analyzing issue with AI...")
 	plan, err := stepAnalyze(ctx, e.ai, aiIssue, projectCtx)
 	if err != nil {
+		e.taskLog(task.ID, "error", fmt.Sprintf("Planning failed: %v", err))
 		task.CompletePipelineStep(PhasePlanning, "failed", "", err.Error())
 		return e.failTask(ctx, state, task, ReasonAI, err)
 	}
+	e.taskLog(task.ID, "info", fmt.Sprintf("Plan: %s", plan.Summary))
 	task.CompletePipelineStep(PhasePlanning, "success", plan.Summary, "")
 
 	if err := Transition(task, PhaseCoding); err != nil {
@@ -111,20 +132,22 @@ func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 	attempt := newAttempt(1)
 	attempt.Plan = plan.Summary
 
+	e.taskLog(task.ID, "info", "Generating code with AI...")
 	changes, err := stepGenerate(ctx, e.ai, plan, nil)
 	if err != nil {
+		e.taskLog(task.ID, "error", fmt.Sprintf("Code generation failed: %v", err))
 		task.CompletePipelineStep(PhaseCoding, "failed", "", err.Error())
 		completeAttempt(&attempt, "failed", ReasonAI)
 		task.Attempts = append(task.Attempts, attempt)
 		return e.failTask(ctx, state, task, ReasonAI, err)
 	}
-	task.CompletePipelineStep(PhaseCoding, "success", fmt.Sprintf("generated %d file changes", len(changes)), "")
-
 	filesChanged := make([]string, len(changes))
 	for i, c := range changes {
 		filesChanged[i] = c.Path
 	}
 	attempt.FilesChanged = filesChanged
+	e.taskLog(task.ID, "info", fmt.Sprintf("Generated %d file(s): %s", len(changes), strings.Join(filesChanged, ", ")))
+	task.CompletePipelineStep(PhaseCoding, "success", fmt.Sprintf("generated %d file changes", len(changes)), "")
 
 	if err := Transition(task, PhaseCommitting); err != nil {
 		completeAttempt(&attempt, "failed", ReasonGit)
@@ -134,13 +157,27 @@ func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 	task.AddPipelineStep(PhaseCommitting, "running")
 	e.notifyPhase(ctx, task, PhaseCommitting)
 
-	commitSHA, err := stepCommit(ctx, e.git, task.Branch, changes, task.Issue.Title)
-	if err != nil {
+	// Clone or pull the repo before committing.
+	e.taskLog(task.ID, "info", "Cloning repository...")
+	owner, repo := parseRepo(e.cfg.Source.Repo)
+	if err := e.git.CloneOrPull(ctx, owner, repo, e.cfg.Source.Token); err != nil {
+		e.taskLog(task.ID, "error", fmt.Sprintf("Clone failed: %v", err))
 		task.CompletePipelineStep(PhaseCommitting, "failed", "", err.Error())
 		completeAttempt(&attempt, "failed", ReasonGit)
 		task.Attempts = append(task.Attempts, attempt)
 		return e.failTask(ctx, state, task, ReasonGit, err)
 	}
+
+	e.taskLog(task.ID, "info", fmt.Sprintf("Creating branch %s and committing...", task.Branch))
+	commitSHA, err := stepCommit(ctx, e.git, task.Branch, changes, task.Issue.Title)
+	if err != nil {
+		e.taskLog(task.ID, "error", fmt.Sprintf("Commit failed: %v", err))
+		task.CompletePipelineStep(PhaseCommitting, "failed", "", err.Error())
+		completeAttempt(&attempt, "failed", ReasonGit)
+		task.Attempts = append(task.Attempts, attempt)
+		return e.failTask(ctx, state, task, ReasonGit, err)
+	}
+	e.taskLog(task.ID, "info", fmt.Sprintf("Committed: %s", commitSHA))
 	task.CompletePipelineStep(PhaseCommitting, "success", "changes committed", "")
 	vars["COMMIT_SHA"] = commitSHA
 
@@ -226,7 +263,7 @@ func (e *Engine) Execute(ctx context.Context, issue Issue) error {
 	task.Attempts = append(task.Attempts, attempt)
 
 	maxRetry := e.cfg.AI.MaxRetry
-	if maxRetry <= 0 {
+	if maxRetry < 0 {
 		maxRetry = defaultMaxRetry
 	}
 
@@ -344,7 +381,7 @@ func (e *Engine) Resume(ctx context.Context, taskID string, approved bool) error
 	task.Attempts = append(task.Attempts, attempt)
 
 	maxRetry := e.cfg.AI.MaxRetry
-	if maxRetry <= 0 {
+	if maxRetry < 0 {
 		maxRetry = defaultMaxRetry
 	}
 
@@ -382,30 +419,21 @@ func (e *Engine) handleDeployFailure(ctx context.Context, task *Task, deployLogs
 	}
 
 	changes := convertDeployFixChanges(proposedFix, infraFiles)
-	proposal := task.AddProposal(ProposalDeployFix, proposedFix.Summary, proposedFix.Reason, changes)
+	task.AddProposal(ProposalDeployFix, proposedFix.Summary, proposedFix.Reason, changes)
 
-	switch approvalMode(e.cfg.Deploy.Approval.Mode) {
-	case "auto":
-		now := time.Now().UTC()
-		proposal.Status = ProposalApproved
-		proposal.ReviewedAt = &now
-		if err := applyProposalChanges(proposal.Changes); err != nil {
-			return fmt.Errorf("apply auto-approved proposal: %w", err)
-		}
-		return nil
-	case "suggest-only":
-		log.Printf("[engine] deploy fix suggestion for task %s: %s (reason: %s, files: %d)", task.ID, proposedFix.Summary, proposedFix.Reason, len(changes))
-		return fmt.Errorf("deploy failed in suggest-only mode: %s", deployLogs)
-	default:
-		task.AddPipelineStep(PhaseAwaitingApproval, "running")
-		if err := Transition(task, PhaseAwaitingApproval); err != nil {
-			task.CompletePipelineStep(PhaseAwaitingApproval, "failed", "", err.Error())
-			return fmt.Errorf("transition to awaiting approval: %w", err)
-		}
-		e.notifyPhase(ctx, task, PhaseAwaitingApproval)
-		task.CompletePipelineStep(PhaseAwaitingApproval, "success", "deploy fix proposal waiting for approval", "")
-		return ErrAwaitingApproval
+	// Infrastructure changes always require human approval via web dashboard.
+	// AI proposes the fix, but only proceeds after explicit human approval.
+	log.Printf("[engine] infra fix proposed for task %s: %s (reason: %s, files: %d) — awaiting human approval",
+		task.ID, proposedFix.Summary, proposedFix.Reason, len(changes))
+
+	task.AddPipelineStep(PhaseAwaitingApproval, "running")
+	if err := Transition(task, PhaseAwaitingApproval); err != nil {
+		task.CompletePipelineStep(PhaseAwaitingApproval, "failed", "", err.Error())
+		return fmt.Errorf("transition to awaiting approval: %w", err)
 	}
+	e.notifyPhase(ctx, task, PhaseAwaitingApproval)
+	task.CompletePipelineStep(PhaseAwaitingApproval, "success", "deploy fix proposal waiting for approval", "")
+	return ErrAwaitingApproval
 }
 
 func enableDeployFailureAnalysis(ctx context.Context) context.Context {
@@ -475,18 +503,6 @@ func proposedChangesToAIFileChanges(changes []ProposedChange) []AIFileChange {
 	return out
 }
 
-func approvalMode(mode string) string {
-	normalized := strings.ToLower(strings.TrimSpace(mode))
-	if normalized == "" {
-		return "manual"
-	}
-	switch normalized {
-	case "auto", "manual", "suggest-only":
-		return normalized
-	default:
-		return "manual"
-	}
-}
 
 // completeTask transitions to reporting, creates a PR, then completes.
 func (e *Engine) completeTask(ctx context.Context, state *State, task *Task) error {
@@ -518,7 +534,11 @@ func (e *Engine) completeTask(ctx context.Context, state *State, task *Task) err
 	e.notifyPhase(ctx, task, PhaseCompleted)
 	task.CompletePipelineStep(PhaseCompleted, "success", "task completed", "")
 
-	log.Printf("[engine] task %s completed with PR %s", task.ID, pr.URL)
+	e.taskLog(task.ID, "info", fmt.Sprintf("Task completed with PR %s", pr.URL))
+
+	if err := e.git.Cleanup(); err != nil {
+		log.Printf("[engine] cleanup workspace: %v", err)
+	}
 
 	return SaveState(state, e.statePath)
 }
@@ -559,7 +579,15 @@ func (e *Engine) rollbackAndFail(ctx context.Context, state *State, task *Task) 
 
 // failTask transitions task to failed and saves state.
 func (e *Engine) failTask(ctx context.Context, state *State, task *Task, reason FailReason, cause error) error {
-	log.Printf("[engine] task %s failed: %v (reason: %s)", task.ID, cause, reason)
+	e.taskLog(task.ID, "error", fmt.Sprintf("Task failed: %v (reason: %s)", cause, reason))
+
+	// Clean up remote branch if it was created during this run.
+	branchName := fmt.Sprintf("rig/issue-%s", task.ID)
+	e.git.CleanupBranch(ctx, branchName)
+
+	if err := e.git.Cleanup(); err != nil {
+		log.Printf("[engine] cleanup workspace: %v", err)
+	}
 
 	task.AddPipelineStep(PhaseFailed, "running")
 	if err := Transition(task, PhaseFailed); err != nil {

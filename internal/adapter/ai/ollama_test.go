@@ -212,16 +212,16 @@ func TestOllamaMalformedJSONResponse(t *testing.T) {
 
 	adapter := newTestOllamaAdapter(t, server.URL)
 
-	_, err := adapter.AnalyzeIssue(context.Background(), &core.AIIssue{
+	plan, err := adapter.AnalyzeIssue(context.Background(), &core.AIIssue{
 		Title: "Test",
 		Body:  "Test body",
 	}, "")
 
-	if err == nil {
-		t.Fatal("expected parse error for malformed JSON, got nil")
+	if err != nil {
+		t.Fatalf("expected fallback plan, got error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "parse plan") {
-		t.Errorf("expected 'parse plan' error, got: %v", err)
+	if plan.Summary == "" {
+		t.Error("expected non-empty fallback summary")
 	}
 }
 
@@ -293,7 +293,7 @@ func TestOllamaFileChangeMissingPath(t *testing.T) {
 	}
 }
 
-func TestOllamaFileChangeMissingAction(t *testing.T) {
+func TestOllamaFileChangeMissingActionDefaultsToCreate(t *testing.T) {
 	changesJSON := `[{"path": "file.go", "content": "data", "action": ""}]`
 	respBody := `{"choices": [{"message": {"content": ` + jsonEscape(changesJSON) + `}}]}`
 
@@ -302,16 +302,19 @@ func TestOllamaFileChangeMissingAction(t *testing.T) {
 
 	adapter := newTestOllamaAdapter(t, server.URL)
 
-	_, err := adapter.GenerateCode(context.Background(), &core.AIPlan{
+	changes, err := adapter.GenerateCode(context.Background(), &core.AIPlan{
 		Summary: "Test",
 		Steps:   []string{"Step 1"},
 	}, nil)
 
-	if err == nil {
-		t.Fatal("expected error for missing action")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "missing action") {
-		t.Errorf("expected 'missing action' error, got: %v", err)
+	if len(changes) != 1 {
+		t.Fatalf("expected 1 change, got %d", len(changes))
+	}
+	if changes[0].Action != "create" {
+		t.Errorf("expected default action 'create', got: %q", changes[0].Action)
 	}
 }
 

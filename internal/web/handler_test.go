@@ -115,7 +115,7 @@ func writeStateFile(t *testing.T, s *core.State) string {
 
 func TestGetTasks(t *testing.T) {
 	statePath := writeStateFile(t, testState())
-	handler := NewHandler(statePath, testConfig())
+	handler := NewHandler(statePath, testConfig(), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/tasks", nil)
 	rec := httptest.NewRecorder()
@@ -146,7 +146,7 @@ func TestGetTasks(t *testing.T) {
 
 func TestGetTaskByID(t *testing.T) {
 	statePath := writeStateFile(t, testState())
-	handler := NewHandler(statePath, testConfig())
+	handler := NewHandler(statePath, testConfig(), nil)
 
 	// Found
 	req := httptest.NewRequest(http.MethodGet, "/api/tasks/task-002", nil)
@@ -173,7 +173,7 @@ func TestGetTaskByID(t *testing.T) {
 
 func TestGetTaskNotFound(t *testing.T) {
 	statePath := writeStateFile(t, testState())
-	handler := NewHandler(statePath, testConfig())
+	handler := NewHandler(statePath, testConfig(), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/tasks/nonexistent", nil)
 	rec := httptest.NewRecorder()
@@ -186,7 +186,7 @@ func TestGetTaskNotFound(t *testing.T) {
 
 func TestGetConfig(t *testing.T) {
 	statePath := writeStateFile(t, testState())
-	handler := NewHandler(statePath, testConfig())
+	handler := NewHandler(statePath, testConfig(), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
 	rec := httptest.NewRecorder()
@@ -219,7 +219,7 @@ func TestGetProjectsMergedAndDeduped(t *testing.T) {
 		{Name: "duplicate-main", Platform: "github", Repo: "acme/app", BaseBranch: "main"},
 		{Name: "other-app", Platform: "github", Repo: "acme/other", BaseBranch: "develop"},
 	}
-	handler := NewHandler(statePath, cfg)
+	handler := NewHandler(statePath, cfg, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/projects", nil)
 	rec := httptest.NewRecorder()
@@ -248,7 +248,7 @@ func TestGetProjectsMergedAndDeduped(t *testing.T) {
 
 func TestCreateTaskWithProjectAndIssueNum(t *testing.T) {
 	statePath := writeStateFile(t, &core.State{Version: "1.0", Tasks: []core.Task{}})
-	handler := NewHandler(statePath, testConfig())
+	handler := NewHandler(statePath, testConfig(), nil)
 
 	body := `{"project":"acme/app","issue_num":"123"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(body))
@@ -282,7 +282,7 @@ func TestCreateTaskWithProjectAndIssueNum(t *testing.T) {
 func TestStaticFileServing(t *testing.T) {
 	// Use a non-existent state file — LoadState handles that gracefully.
 	statePath := filepath.Join(t.TempDir(), "nonexistent.json")
-	handler := NewHandler(statePath, testConfig())
+	handler := NewHandler(statePath, testConfig(), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
@@ -301,7 +301,7 @@ func TestStaticFileServing(t *testing.T) {
 func TestGetTasksMissingStateFile(t *testing.T) {
 	// LoadState returns empty state for missing file.
 	statePath := filepath.Join(t.TempDir(), "missing", "state.json")
-	handler := NewHandler(statePath, testConfig())
+	handler := NewHandler(statePath, testConfig(), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/tasks", nil)
 	rec := httptest.NewRecorder()

@@ -1,4 +1,4 @@
-.PHONY: build test vet lint clean install docker-build docker-push help
+.PHONY: build test vet lint clean install serve docker-build docker-push help
 
 BINARY=rig
 VERSION?=dev
@@ -32,6 +32,10 @@ clean:
 ## install: Install binary to $GOPATH/bin
 install: build
 	go install ./cmd/rig
+
+## serve: Build and run (web + webhook)
+serve: build
+	./$(BINARY) serve -c rig.yaml
 
 ## docker-build: Build Docker image
 docker-build:
